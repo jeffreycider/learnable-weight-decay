@@ -100,6 +100,7 @@ checkpoint_io:
   _target_: chisel.checkpoint_io.CheckpointReader
   prefetch: true
   pin_memory: false
+  cache_bytes: 34359738368
 compile_gpt_loss_kwargs:
   fullgraph: true
   dynamic: false
