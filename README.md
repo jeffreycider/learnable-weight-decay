@@ -14,7 +14,7 @@ Run from this checkout:
 
 ```bash
 git submodule update --init --recursive
-pip install -e '.[test,cifar]'
+pip install -e '.[test,cifar,storage]'
 python -m chisel.harness recipes/cifar_capture.yaml
 # Text configuration uses eight ranks:
 torchrun --standalone --nproc_per_node=8 -m chisel.harness recipes/nanogpt_capture.yaml
@@ -26,19 +26,34 @@ torchrun --standalone --nproc_per_node=8 -m chisel.harness recipes/nanogpt_captu
 
 **The new Chisel implements consolidation, not the retired shrinkage/KL experiment.** Each hidden matrix is `W = R + C`. Chisel transfers `D` through `R ← R − D, C ← C + D`, then the unchanged MuonH map updates `R`. A global transfer multiplier keeps raw radii above the configured floor. The next ordinary backward supplies the task cotangent; Chisel differentiates through the saved transfer and MuonH algebra. No additional GPT evaluation occurs online. The terminal iteration consumes pending credit and makes no new transfer.
 
-**Checkpoint-private probes actually learn.** A shared NanoGPT transformer processes all matrix summaries. Each saved GPT state has its own trainable read/write maps and Adam state. Offline fitting currently uses one process per run. Batches accumulate shared-backbone gradients across checkpoints before one Adam update; each visited checkpoint's private maps are loaded, updated and saved. Offline edited-GPT forward, loss and backward are compiled together; the shared Chisel forward is compiled separately. Known architecture variants may compile separately, but changing checkpoint values must reuse their graphs.
+**Checkpoint-private probes actually learn.** A shared NanoGPT transformer processes all matrix summaries. Each saved GPT state has its own trainable read/write maps and Adam state. Offline fitting supports checkpoint-owned private probes across ranks, with summed shared gradients and committed restart generations. Batches accumulate shared-backbone gradients across checkpoints before one Adam update; each visited checkpoint's private maps are loaded, updated and saved. Offline edited-GPT forward, loss and backward are compiled together; the shared Chisel forward is compiled separately. Known architecture variants may compile separately, but changing checkpoint values must reuse their graphs.
 
 **Offline task supervision uses the next batch after the saved base state.** It replays the complete base optimizer proposal, substitutes the Chisel-dependent hidden matrices, and differentiates next-batch loss plus the consolidated-weight penalty. This permits extra GPT evaluations offline. It is not a claim of NanoGPT benchmark compliance or improved learning.
 
-**Capture stores replayable transitions without duplicating CIFAR images.** Records contain weights, raw gradients, optimizer state, activity, resolved configuration, base-source hashes and the next data cursor. CIFAR augmentation and mixing are determined by explicit seeds and the step; FineWeb uses its shard cursor. Receipts contain file size and SHA256. Dataset files must remain available at their recorded identities. Terminal records say whether a subsequent prescribed training step exists.
+**Capture stores replayable transitions and optional raw activation shards without duplicating CIFAR images.** Records contain weights, raw gradients, optimizer state, activity, resolved configuration, base-source hashes and the next data cursor. CIFAR augmentation and mixing are determined by explicit seeds and the step; FineWeb uses its shard cursor. Receipts contain file size and SHA256. Dataset files must remain available at their recorded identities. Terminal records say whether a subsequent prescribed training step exists.
 
 **Offline training and validation manifests must contain disjoint checkpoint hashes.** A manifest is a YAML mapping with `states`, each containing `path`, `sha256` and `domain`. Relative paths resolve against the manifest. Validation visits every listed checkpoint without optimizer updates. Unseen checkpoints use deterministic, unfitted private probes; this metric does not establish performance after support fitting. Validation is logged per domain and never enters the online update.
 
 **Restart includes pending credit and private fitting state.** Numbered checkpoints are retained, with `latest_rank{rank}.pt` pointing to the newest one. Set `resume` to that file; a shorter `stop_step` leaves the original learning-rate schedule intact. Offline checkpoints commit pointers to immutable private-state versions, so retain the `private/` directory with the shared checkpoint. Source/config changes are rejected on resume. Runs save resolved YAML, source archives, package versions and RNG state.
 
+## Saved data and retained systems work
+
+[Checkpoint contents and replay contract](docs/checkpoints.md) describe the actual saved fields, capture clocks, activation sampling and R2 backup.
+
+| Capability | Active implementation |
+|---|---|
+| Offline I/O | Bounded CPU prefetch; optional pinned memory; checkpoint SHA verification |
+| Multi-GPU offline fitting | Fixed ownership of private probes; shared-gradient reduction; committed restart generations |
+| Compilation | Configurable actor and edited-model compilation; tests reject repeated compilation on new checkpoint values |
+| Fused activation | Optional FP32 Triton backend; default remains native compiled PyTorch |
+| CUDA graphs | Selectable through compiler `mode: reduce-overhead`; no manually captured old-objective graph reused |
+| Storage operations | YAML-driven trajectory uploader, dataset backup and complete-checkpoint catalog |
+
+The A100 [MLP benchmark](docs/mlp-benchmark-a100.json) found no meaningful advantage over native compilation (about 1.5 ms per forward/backward/Adam step). This is not a full offline-training benchmark. Persistent kernels require a new layout and objective integration; their code is archived, with no speedup claimed for the new trainer.
+
 ## Review ladder
 
-Each draft PR targets its immediate predecessor. Counts include added **and** deleted non-test Python lines. Some later rungs contain corrections found by integration/GPU tests; review the complete stack before deployment.
+Each draft PR targets its immediate predecessor. PR30 is the user-approved deletion-only exception to the size limit. Counts include added **and** deleted non-test Python lines. Some later rungs contain corrections found by integration/GPU tests; review the complete stack before deployment.
 
 | PR | Change | Python lines |
 |---|---|---:|
@@ -61,8 +76,20 @@ Each draft PR targets its immediate predecessor. Counts include added **and** de
 | [17](https://github.com/jeffreycider/learnable-weight-decay/pull/17) | Restart, validation and compilation qualification | 89 |
 | [18](https://github.com/jeffreycider/learnable-weight-decay/pull/18) | Published CUDA arithmetic and base-source checks | 55 |
 | [19](https://github.com/jeffreycider/learnable-weight-decay/pull/19) | Review guide, checkpoint retention and metadata backup | 73 |
+| [20](https://github.com/jeffreycider/learnable-weight-decay/pull/20) | Checkpoint phase, replay cursor and hyperparameters | 28 |
+| [21](https://github.com/jeffreycider/learnable-weight-decay/pull/21) | Unprojected activation and adjoint shards | 122 |
+| [22](https://github.com/jeffreycider/learnable-weight-decay/pull/22) | Verified immutable R2 storage | 89 |
+| [23](https://github.com/jeffreycider/learnable-weight-decay/pull/23) | Upload workers and catalog creation | 116 |
+| [24](https://github.com/jeffreycider/learnable-weight-decay/pull/24) | Bounded checkpoint prefetch | 81 |
+| [25](https://github.com/jeffreycider/learnable-weight-decay/pull/25) | Optional fused FP32 activation | 97 |
+| [26](https://github.com/jeffreycider/learnable-weight-decay/pull/26) | Systems benchmarks and compiler modes | 58 |
+| [27](https://github.com/jeffreycider/learnable-weight-decay/pull/27) | Distributed offline fitting and restart | 85 |
+| [28](https://github.com/jeffreycider/learnable-weight-decay/pull/28) | Dataset identities and RNG metadata | 47 |
+| [29](https://github.com/jeffreycider/learnable-weight-decay/pull/29) | Explicit source compatibility | 28 |
+| [30](https://github.com/jeffreycider/learnable-weight-decay/pull/30) | Delete obsolete and archived code; approved size exception | 60717 |
+| [31](https://github.com/jeffreycider/learnable-weight-decay/pull/31) | Migration guide and end-to-end qualification | see PR |
 
-**The active implementation is about 1,400 Python lines.** The source-only review base preserves existing code for comparison; old standalone trainers under `scripts/` and `baseline/train.py` are historical, not production entrypoints. The original dirty research checkout remains intact.
+**The active tree contains the shared harness and its supported components.** Obsolete trainers are deleted from this branch. Useful SOAP, kernel and storage research is retained on [the archival branch](https://github.com/jeffreycider/learnable-weight-decay/tree/archive/research-20261115). Running jobs retain frozen source releases.
 
 ## Verification
 
@@ -70,6 +97,6 @@ Each draft PR targets its immediate predecessor. Counts include added **and** de
 python -m pytest -q tests/harness
 ```
 
-Tests cover block parity, literal MuonH arithmetic, global gradient/activation reduction, immutable capture, deterministic augmentation across worker counts, private optimizer persistence, exact one-step VJPs, pending-credit restart, and capture → offline fitting → online execution. CUDA tests additionally check compilation reuse and a tiny CIFAR pipeline using real images. Qualification used PyTorch 2.11.0 / torchvision 0.26.0 on A100, plus CPU tests. These are correctness checks, not evidence of a validation-loss improvement.
+Tests cover block parity, literal MuonH arithmetic, global gradient/activation reduction, immutable capture, deterministic augmentation across worker counts, private optimizer persistence, exact one-step VJPs, pending-credit restart, and capture → offline fitting → online execution. CUDA tests additionally check compilation reuse and a tiny CIFAR pipeline using real images. Qualification includes 45 CPU tests and seven A100 checks, including two-GPU offline fitting. Commands and environments are in [qualification.yaml](docs/qualification.yaml). These are correctness checks, not evidence of a validation-loss improvement.
 
 A GitHub Actions workflow could not be published with the current OAuth token's scopes. The commands above were run directly; no green CI status is being claimed.
