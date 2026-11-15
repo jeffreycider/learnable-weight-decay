@@ -21,10 +21,10 @@ def restore(config):
             target.unlink()
         if not target.exists():
             temporary = target.with_suffix(target.suffix + '.restore')
-            if original.exists():
+            try:
                 # The old uploader may unlink its source after backup. Own the bytes.
                 shutil.copyfile(original, temporary)
-            else:
+            except FileNotFoundError:
                 marker = receipt.with_name(receipt.name.replace('.ready.json', '.uploaded.json'))
                 archived = json.loads(marker.read_text())
                 if archived['sha256'] != info['sha256']:
@@ -39,12 +39,17 @@ def restore(config):
         return str(target)
 
     priority = {step: index for index, step in enumerate(config.get('priority_steps', []))}
+    def order(path):
+        step = int(path.name.split('_')[1].split('.')[0])
+        # Make complete checkpoints available throughout restoration, rather than
+        # restoring every shard of rank 0 before starting rank 1.
+        return priority.get(step, len(priority)), step, str(path.parent)
     receipts = sorted(source.glob('rank*/step_*.pt.ready.json'),
-                      key=lambda path: (priority.get(int(path.name.split('_')[1].split('.')[0]), len(priority)), str(path)))
+                      key=order)
     with ThreadPoolExecutor(config['workers']) as pool:
         for index, path in enumerate(pool.map(one, receipts)):
             if index % 100 == 0:
-                print(json.dumps(dict(restored_or_linked=index + 1, path=path)), flush=True)
+                print(json.dumps(dict(restored_or_copied=index + 1, path=path)), flush=True)
 
 
 if __name__ == '__main__':
