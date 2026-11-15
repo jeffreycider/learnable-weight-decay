@@ -47,11 +47,14 @@ def setup():
 
 def record(every):
     def hook(config, state):
-        if state.extras['rank'] or state.step % every or state.step >= config['train_steps'] - 1:
+        if state.extras['rank'] or state.step % every:
             return
         if 'consolidation' in state.extras:
             raise ValueError('baseline trajectory capture expects C=0')
         value = cpu_copy(dict(schema='chisel-muonh-transition-v1', config=config, step=state.step,
+                              source_hashes={name: digest for name, digest in state.extras['source_hashes'].items()
+                                             if name in ('baseline/model.py', 'baseline/data.py', 'chisel/models.py', 'chisel/muonh.py', 'chisel/cifar.py')},
+                              has_next_training_step=state.step + 1 < config['train_steps'],
                               weights=state.model.state_dict(),
                               gradients={name: p.grad for name, p in state.model.named_parameters()},
                               optimizer=state.optimizer.state_dict(), next_data=state.train_batches.state_dict(),

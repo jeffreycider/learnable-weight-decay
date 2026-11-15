@@ -65,6 +65,9 @@ class Replay:
         record = torch.load(path, map_location=self.device, weights_only=False)
         if record['schema'] != 'chisel-muonh-transition-v1':
             raise ValueError('unsupported transition schema')
+        for source, digest in record['source_hashes'].items():
+            if hashlib.sha256(Path(source).read_bytes()).hexdigest() != digest:
+                raise ValueError(f'captured base implementation differs: {source}')
         config = record['config']
         key = yaml.safe_dump(config['model'])
         if key not in self.models:

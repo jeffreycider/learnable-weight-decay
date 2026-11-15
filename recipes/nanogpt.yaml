@@ -13,7 +13,7 @@ optimizers:
   hidden:
     parameters: 'blocks\.\d+\.(attn\.(q|k|v|proj)|mlp\.(fc|proj))\.weight'
     optimizer: {_target_: chisel.muonh.MuonH, lr: 0.018, mu: 0.95, ns_steps: 12, compile: true}
-    tensor_lr: true
+    tensor_lr: false
     schedule: {name: chisel.schedules.cooldown, kwargs: {fraction: 1.0}}
   embedding:
     parameters: 'embed.weight'
