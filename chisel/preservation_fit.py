@@ -114,7 +114,7 @@ def evaluate(every):
                 checkpoint_results = []
                 for entry in entries:
                     model, base, snapshot, directions, rates, batch, _ = state.extras['replay'].load(entry)
-                    probes, private_optimizer = state.extras['private_probes'].load(entry['sha256'], snapshot, base)
+                    probes, private_optimizer = state.extras['private_probes'].load(entry['sha256'], snapshot, base, actor=state.model)
                     measurement_config = config | config.get('domain_settings', {}).get(entry['domain'], {})
                     adaptation = {}
                     if prefix == 'validation' and config.get('validation_adaptation'):
