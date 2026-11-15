@@ -106,3 +106,20 @@ recording_groups_qualification:
     warm_step_seconds_examples: [7.47, 7.22]
     scope: A100 pilot with simultaneous eight-GPU recording; not an isolated scaling benchmark
     checkpoint_and_trajectory_saved: true
+
+checkpoint_dual_qualification:
+  cpu_command: python -m pytest tests/harness -q
+  cpu_successful: 98
+  cuda_skipped: 9
+  cpu_seconds: 19.07
+  checks:
+  - checkpoint multipliers update independently and do not alias saved state
+  - exact resume restores shared weights and private multipliers
+  - two-rank CPU fitting matches single-process shared weights and dual state
+  - logged KL penalty equals the mean of each multiplier times its checkpoint KL
+  cuda_execution:
+    hardware: A100 80GB with concurrent recording
+    artifact_root: /lambda/nfs/crobat/chisel-simplification-20261115
+    runs: [cifar32-past-dual-shared, cifar32-past-dual-checkpoint]
+    first_update_identical: true
+    limitation: execution check only; preservation improvement is not established
