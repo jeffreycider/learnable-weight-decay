@@ -50,3 +50,29 @@ def test_equal_group_reward_and_total_norm_audit_are_distinct():
     before=torch.cat([v['raw'].flatten() for v in snapshot.values()]).norm()
     after=torch.cat([v.flatten() for v in edited.values()]).norm()
     torch.testing.assert_close(effective_norm_change(snapshot,edited),after/before-1)
+
+
+def test_ties_cannot_hide_real_ordering_changes():
+    from chisel.preservation import prediction_terms,ranking_changes
+    teacher=torch.tensor([[3.,2.,2.,1.]])
+    for student,k in [(torch.tensor([[3.,0.,2.,1.]]),4),(torch.tensor([[3.,2.,0.,2.5]]),2)]:
+        student.requires_grad_()
+        assert ranking_changes(student,teacher,k)['rank_changed']==1
+        loss=prediction_terms(student,teacher,k)['ranking'].sum()
+        assert loss>0
+        loss.backward()
+        assert torch.isfinite(student.grad).all() and student.grad.abs().sum()>0
+
+
+def test_boundary_tie_replacement_is_allowed_and_top_one_is_finite():
+    from chisel.preservation import prediction_terms,ranking_changes
+    teacher=torch.tensor([[3.,2.,2.,1.]])
+    for student in [torch.tensor([[3.,1.5,2.5,1.]]),torch.tensor([[3.,2.5,1.5,1.]])]:
+        assert ranking_changes(student,teacher,2)['rank_changed']==0
+        assert prediction_terms(student,teacher,2)['ranking']==0
+    for teacher,k in [(torch.ones(2,4),2),(torch.ones(2,1),1)]:
+        student=torch.randn_like(teacher,requires_grad=True)
+        loss=prediction_terms(student,teacher,k)['ranking'].sum()
+        assert loss==0
+        loss.backward()
+        assert torch.isfinite(student.grad).all()

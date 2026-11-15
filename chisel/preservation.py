@@ -49,15 +49,35 @@ def prediction_terms(student, teacher, top_k=100, margin_fraction=.5, ranking_po
     values, indices = teacher.topk(k, dim=-1, sorted=True)
     ordered = student.gather(-1, indices)
     gaps = values[:, :-1] - values[:, 1:]
-    violations = (margin_fraction * gaps - (ordered[:, :-1] - ordered[:, 1:])).clamp_min(0)
-    # Exact teacher ties have no ordering constraint.
-    rank_loss = torch.where(gaps > 0, violations.pow(ranking_power), 0).mean(-1)
+    groups = torch.cat((torch.zeros_like(indices[:, :1]), (gaps > 0).long().cumsum(-1)), dim=-1)
+    minimum = torch.full_like(ordered, float('inf')).scatter_reduce(1, groups, ordered, reduce='amin')
+    maximum = torch.full_like(ordered, float('-inf')).scatter_reduce(1, groups, ordered, reduce='amax')
     if k < teacher.shape[-1]:
-        outside = student.scatter(-1, indices, float('-inf')).max(-1).values
-        teacher_outside = teacher.scatter(-1, indices, float('-inf')).max(-1).values
+        # A tie crossing the cutoff may select any required number of tied tokens.
+        tied = teacher == values[:, -1:]
+        inside_count = (values == values[:, -1:]).sum(-1)
+        boundary_ties = tied.sum(-1) > inside_count
+        cutoff = minimum.gather(1, groups[:, -1:])[:, 0]
+        if boundary_ties.any():
+            candidates = student[boundary_ties].masked_fill(~tied[boundary_ties], float('-inf'))
+            best = candidates.topk(k, dim=-1).values
+            cutoff = cutoff.clone()
+            cutoff[boundary_ties] = best.gather(1, (inside_count[boundary_ties] - 1)[:, None])[:, 0]
+            last_max = maximum.gather(1, groups[:, -1:]).clone()
+            last_max[boundary_ties, 0] = best[:, 0]
+            maximum = maximum.scatter(1, groups[:, -1:], last_max)
+        lower = teacher < values[:, -1:]
+        outside = student.masked_fill(~lower, float('-inf')).max(-1).values
+        teacher_outside = teacher.masked_fill(~lower, float('-inf')).max(-1).values
         boundary = values[:, -1] - teacher_outside
-        violation = (margin_fraction * boundary - (ordered[:, -1] - outside)).clamp_min(0)
-        rank_loss = rank_loss + torch.where(boundary > 0, violation.pow(ranking_power), 0)
+        boundary = torch.where(torch.isfinite(boundary), boundary, 0)
+        boundary_loss = (margin_fraction * boundary - (cutoff - outside)).clamp_min(0).pow(ranking_power)
+    # Every member of an upper tie group must precede every lower group.
+    separation = minimum.gather(1, groups[:, :-1]) - maximum.gather(1, groups[:, 1:])
+    violations = (margin_fraction * gaps - separation).clamp_min(0)
+    rank_loss = torch.where(gaps > 0, violations.pow(ranking_power), 0).sum(-1) / max(1, k - 1)
+    if k < teacher.shape[-1]:
+        rank_loss = rank_loss + boundary_loss
     return dict(mse=mse, kl=kl, ranking=rank_loss)
 
 
