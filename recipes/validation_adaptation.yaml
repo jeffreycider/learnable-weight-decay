@@ -1,0 +1,9 @@
+extends: offline.yaml
+# Held-out checkpoint probes fit support examples; only queries enter validation metrics.
+# This never changes the shared Chisel weights or its training dual/probe store.
+validation_adaptation:
+  steps: 32
+  support_examples: 16
+  query_examples: 16
+  seed: 1729
+  private_lr: 0.001
