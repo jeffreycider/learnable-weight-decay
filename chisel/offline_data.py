@@ -37,13 +37,14 @@ class Catalog:
         return batch
 
     def state_dict(self):
-        return dict(identity=self.identity, rng=self.rng.get_state(), orders=self.orders, cursors=self.cursors)
+        return dict(identity=self.identity, rng=self.rng.get_state(), orders={key: list(value) for key, value in self.orders.items()}, cursors=dict(self.cursors))
 
     def load_state_dict(self, saved):
         if saved['identity'] != self.identity:
             raise ValueError('offline manifest changed')
         self.rng.set_state(saved['rng'])
-        self.orders, self.cursors = saved['orders'], saved['cursors']
+        self.orders = {key: list(value) for key, value in saved['orders'].items()}
+        self.cursors = dict(saved['cursors'])
 
 
 class Replay:
