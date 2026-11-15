@@ -97,3 +97,25 @@ def measure(every=10):
             dist.broadcast_object_list(pointers, src=0)
             store.latest = pointers[0]
     return hook
+
+
+def checkpoint(every=25):
+    """Save one complete copy of replicated fitting state and current probes."""
+    from chisel import recording
+    def hook(config, state):
+        if (state.step + 1) % every and state.step + 1 != config['train_steps']:
+            return
+        if state.extras['rank'] == 0:
+            fits = state.extras.get('parallel_fits', state.extras.get('diagnostic_fits', [state.extras.get('fit')]))
+            store = state.extras['private_probes']
+            for fit in fits:
+                store.save(fit['entry']['sha256'], state.step, fit['probes'], fit['private'])
+            recording.checkpoint(every)(config, state)
+    return hook
+
+
+def shutdown():
+    def hook(config, state):
+        if dist.is_initialized():
+            dist.destroy_process_group()
+    return hook
