@@ -9,6 +9,7 @@ from chisel.training import optimizers
 from chisel.transfer import observe
 from chisel.checkpoint_io import CheckpointReader, map_tensors
 from chisel.source_compatibility import verify_sources
+from chisel.preservation_data import cursor_at_step
 
 
 class Catalog:
@@ -58,7 +59,7 @@ class Replay:
         self.phase, self.parameter_dtype = phase, parameter_dtype
         self.batch_cache_size, self.batches = batch_cache_size, OrderedDict()
 
-    def load(self, entry, record=None):
+    def load(self, entry, record=None, batch_step=None):
         record = self.reader.read(entry) if record is None else record
         record = map_tensors(record, lambda value: value.to(self.device, non_blocking=True))
         if record['schema'] not in ('chisel-muonh-transition-v1', 'chisel-muonh-transition-v2'):
@@ -101,6 +102,10 @@ class Replay:
             else:
                 cursor['pos'] -= cursor['batch_size']
                 cursor['batches'] -= 1
+        if batch_step is not None:
+            if self.phase != 'current' or not 0 <= batch_step <= record['step']:
+                raise ValueError('preservation examples must already have been seen by the saved model')
+            cursor = cursor_at_step(stream, cursor, batch_step)
         if 'world_size' in cursor:
             cursor.update(rank=0, world_size=1)  # Replay the entire global text batch.
         batch_key = (stream_key, repr(sorted(cursor.items())))
