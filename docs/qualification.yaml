@@ -44,3 +44,19 @@ corrected_objective_qualification:
     uncached_median_warm_step_seconds: 11.98
     limitation: different nodes and competing recording jobs; not an isolated speed comparison
     decision: keep teacher caching opt-in; no demonstrated wall-clock gain
+
+staged_recording_qualification:
+  cpu_successful: 73
+  cuda_skipped: 7
+  command: python -m pytest tests/harness -q
+  seconds: 23.30
+  tie_aware_preservation_cuda:
+    successful: 2
+    seconds: 7.49
+    checks: [zero_edit_identity, cached_teacher_gradient_parity]
+  local_recording:
+    hardware: 8 x A100 80GB, colocated with CIFAR recording and offline fitting
+    global_tokens_per_update: 524288
+    observed_warm_step_seconds: [5.664, 5.398, 5.652]
+    limitation: recording throughput, not an isolated optimizer benchmark
+    replication_verification: source hash checked during copy; readback verified by uploader and dataset reader
