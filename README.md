@@ -94,7 +94,6 @@ Each draft PR targets its immediate predecessor. PR30 is the user-approved delet
 | [29](https://github.com/jeffreycider/learnable-weight-decay/pull/29) | Explicit source compatibility | 28 |
 | [30](https://github.com/jeffreycider/learnable-weight-decay/pull/30) | Delete obsolete and archived code; approved size exception | 60717 |
 | [31](https://github.com/jeffreycider/learnable-weight-decay/pull/31) | Migration guide and end-to-end qualification | see PR |
-
 | [32](https://github.com/jeffreycider/learnable-weight-decay/pull/32) | Allow independent raw and consolidated edits instead of forcing redistribution | 51 |
 | [33](https://github.com/jeffreycider/learnable-weight-decay/pull/33) | Define grouped effective-norm reward and exact prediction-preservation measurements | 71 |
 | [34](https://github.com/jeffreycider/learnable-weight-decay/pull/34) | Differentiate actual teacher-student preservation and audit fitted checkpoints | 105 |
