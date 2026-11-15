@@ -1,0 +1,4 @@
+extends: offline.yaml
+replay_data_options:
+  cifar:
+    mix: null

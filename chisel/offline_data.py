@@ -52,13 +52,16 @@ class Catalog:
 
 
 class Replay:
-    def __init__(self, device, reader=None, compatibility=None, phase="next", parameter_dtype=None, batch_cache_size=64, model_options=None):
+    def __init__(self, device, reader=None, compatibility=None, phase="next", parameter_dtype=None, batch_cache_size=64, model_options=None, data_options=None):
         self.device, self.models, self.streams = device, {}, {}
         self.reader = reader or CheckpointReader()
         self.compatibility = compatibility
         self.phase, self.parameter_dtype = phase, parameter_dtype
         self.batch_cache_size, self.batches = batch_cache_size, OrderedDict()
         self.model_options = model_options or {}
+        self.data_options = data_options or {}
+        if any(set(options) - {'mix', 'transform'} for options in self.data_options.values()):
+            raise ValueError('preservation data overrides may change views, not dataset identity or splits')
         if set(self.model_options) - {'linear_backward'}:
             raise ValueError('replay execution options cannot change the recorded architecture')
 
@@ -92,9 +95,10 @@ class Replay:
         if self.phase == "next":
             state.optimizer.step()
         base = {name: p.detach().clone() for name, p in model.named_parameters()}
-        stream_key = yaml.safe_dump(config['data'])
+        data_config = config['data'] | self.data_options.get(entry.get('domain'), {})
+        stream_key = yaml.safe_dump(data_config)
         if stream_key not in self.streams:
-            self.streams[stream_key] = build(config['data'], device=self.device, rank=0, world_size=1)
+            self.streams[stream_key] = build(data_config, device=self.device, rank=0, world_size=1)
         stream = self.streams[stream_key]
         cursor = dict(record['next_data'])
         if self.phase == 'current':
