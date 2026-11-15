@@ -7,6 +7,7 @@ import os
 import time
 import yaml
 from chisel.storage import atomic_json, sha256
+from chisel.receipt_discovery import ready_receipts
 
 
 def relocate_verified(original, target, digest):
@@ -58,7 +59,7 @@ def copy_record(source, destination, receipt, relocate=False):
 
 def copy_metadata(source, destination, seen):
     for path in source.iterdir():
-        if not path.is_file() or path.suffix not in ('.yaml', '.json', '.jsonl', '.gz'):
+        if path.suffix not in ('.yaml', '.json', '.jsonl', '.gz') or not path.is_file():
             continue
         if path.name.endswith(('.ready.json', '.uploaded.json')) or path.name == 'queue_complete.json':
             continue
@@ -88,11 +89,11 @@ def mirror(config):
                 if not receipt.exists():
                     atomic_json(receipt, dict(file=path.name, path=str(path.resolve()),
                         bytes=path.stat().st_size, sha256=sha256(path)))
-            receipts = sorted(source.rglob('*.ready.json'))
+            receipts = sorted(ready_receipts(source))
             for receipt in receipts:
                 if receipt in completed or receipt in pending:
                     continue
-                if len(pending) >= 2 * config['workers']:
+                if len(pending) >= config.get('max_pending', 32 * config['workers']):
                     break
                 try:
                     json.loads(receipt.read_text())
