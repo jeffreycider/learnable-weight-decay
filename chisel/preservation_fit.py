@@ -27,7 +27,7 @@ def preservation_gradient(model, original, edited, effective, batch, config, sta
             reference = original | {name: original[name].detach().requires_grad_() for name in effective}
             teacher = forward(model, reference, examples).detach()
             student = forward(model, edited, examples)
-        terms = prediction_terms(student, teacher, loss_config['top_k'], loss_config['margin_fraction'])
+        terms = prediction_terms(student, teacher, loss_config['top_k'], loss_config['margin_fraction'], loss_config.get('ranking_power', 2))
         loss = weight * (loss_config['logit_mse_weight'] * terms['mse'].mean()
                         + dual_value * terms['kl'].mean()
                         + loss_config['ranking_weight'] * terms['ranking'].mean())
@@ -93,7 +93,8 @@ def evaluate(every):
                     _, effective, _ = action(state.extras['forward'], probes, snapshot, directions, rates,
                                              config['radius_floor'], advance_optimizer=False,
                                              proposer=state.extras.get('proposal_forward'))
-                    result = audit(model, base, base | effective, batch, config, state)
+                    measurement_config = config | config.get('domain_settings', {}).get(entry['domain'], {})
+                    result = audit(model, base, base | effective, batch, measurement_config, state)
                     reduction = -100 * group_norm_change(snapshot, effective).item()
                     totals['norm_reduction_pct'] += reduction / len(entries)
                     totals['minimum_norm_reduction_pct'] = min(totals['minimum_norm_reduction_pct'], reduction)

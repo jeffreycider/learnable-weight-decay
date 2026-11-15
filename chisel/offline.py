@@ -97,11 +97,12 @@ def backward(config, state):
         batch_step = training_batch_step(config, entry['sha256'], state.step, record['step'])
         model, base, snapshot, directions, rates, batch, source = replay.load(entry, record, batch_step=batch_step)
         probes, private_optimizer = store.load(entry['sha256'], snapshot)
+        measurement_config = config | config.get('domain_settings', {}).get(entry['domain'], {})
         for inner in range(config.get('private_steps', 1)):
             private_optimizer.zero_grad(set_to_none=True)
             _, effective, consolidated = action(state.model, probes, snapshot, directions, rates, config['radius_floor'],
                                                  advance_optimizer=False, proposer=state.extras['proposal_forward'])
-            gradient, observed = preservation_gradient(model, base, base | effective, effective, batch, config, state, dual.value)
+            gradient, observed = preservation_gradient(model, base, base | effective, effective, batch, measurement_config, state, dual.value)
             norm_change = group_norm_change(snapshot, effective)
             storage = penalty(consolidated)
             credit = sum((value * gradient[name].detach()).sum() for name, value in effective.items())
