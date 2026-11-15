@@ -114,11 +114,16 @@ def evaluate(every):
                 checkpoint_results = []
                 for entry in entries:
                     model, base, snapshot, directions, rates, batch, _ = state.extras['replay'].load(entry)
-                    probes, _ = state.extras['private_probes'].load(entry['sha256'], snapshot, base)
+                    probes, private_optimizer = state.extras['private_probes'].load(entry['sha256'], snapshot, base)
+                    measurement_config = config | config.get('domain_settings', {}).get(entry['domain'], {})
+                    adaptation = {}
+                    if prefix == 'validation' and config.get('validation_adaptation'):
+                        from chisel.adaptation import fit
+                        batch, measurement_config, adaptation = fit(measurement_config, state,
+                            entry['sha256'], model, base, snapshot, directions, rates, batch, probes, private_optimizer)
                     _, effective, _ = action(state.extras['forward'], probes, snapshot, directions, rates,
                                              config['radius_floor'], advance_optimizer=False,
                                              proposer=state.extras.get('proposal_forward'))
-                    measurement_config = config | config.get('domain_settings', {}).get(entry['domain'], {})
                     result = audit(model, base, base | effective, batch, measurement_config, state)
                     reduction = -100 * group_norm_change(snapshot, effective).item()
                     totals['norm_reduction_pct'] += reduction / len(entries)
@@ -126,7 +131,7 @@ def evaluate(every):
                     actual = -100 * effective_norm_change(snapshot, effective).item()
                     checkpoint_results.append(dict(checkpoint=entry['path'], sha256=entry['sha256'],
                         domain=entry['domain'], norm_reduction_pct=reduction,
-                        effective_frobenius_reduction_pct=actual, **result))
+                        effective_frobenius_reduction_pct=actual, **adaptation, **result))
                     totals['effective_frobenius_reduction_pct'] += actual / len(entries)
                     totals['minimum_effective_frobenius_reduction_pct'] = min(totals['minimum_effective_frobenius_reduction_pct'], actual)
                     totals['kl'] += result.pop('kl') / len(entries)
