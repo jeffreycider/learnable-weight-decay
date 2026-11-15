@@ -32,19 +32,27 @@ def effective_norm_change(snapshot, effective):
     return relative / ((1 + relative).clamp_min(0).sqrt() + 1)
 
 
-def prediction_terms(student, teacher, top_k=100, margin_fraction=.5, ranking_power=2):
+def prediction_terms(student, teacher, top_k=100, margin_fraction=.5, ranking_power=2,
+                     center_logits=True, compute_kl=True, compute_ranking=True):
     """No GPT approximation: compare actual predictions on the same examples."""
     if ranking_power not in (1, 2):
         raise ValueError('ranking_power must select linear or squared hinge')
+    def violation(gap, separation):
+        value = (margin_fraction * gap - separation).clamp_min(0)
+        return value.pow(ranking_power)
     student, teacher = student.flatten(0, -2), teacher.detach().flatten(0, -2)
     difference = student - teacher
     centered = difference - difference.mean(-1, keepdim=True)
-    mse = centered.square().mean(-1)
-    # A centered cumulant avoids subtracting nearly equal cross-entropies.
-    probability = teacher.double().softmax(-1)
-    delta = difference.double()
-    delta = delta - (probability * delta).sum(-1, keepdim=True)
-    kl = torch.log1p((probability * torch.expm1(delta)).sum(-1)).clamp_min(0)
+    mse = (centered if center_logits else difference).square().mean(-1)
+    kl = torch.zeros_like(mse)
+    if compute_kl:
+        # A centered cumulant avoids subtracting nearly equal cross-entropies.
+        probability = teacher.double().softmax(-1)
+        delta = difference.double()
+        delta = delta - (probability * delta).sum(-1, keepdim=True)
+        kl = torch.log1p((probability * torch.expm1(delta)).sum(-1)).clamp_min(0)
+    if not compute_ranking:
+        return dict(mse=mse, kl=kl, ranking=torch.zeros_like(mse))
     k = min(top_k, teacher.shape[-1])
     values, indices = teacher.topk(k, dim=-1, sorted=True)
     ordered = student.gather(-1, indices)
@@ -71,11 +79,11 @@ def prediction_terms(student, teacher, top_k=100, margin_fraction=.5, ranking_po
         teacher_outside = teacher.masked_fill(~lower, float('-inf')).max(-1).values
         boundary = values[:, -1] - teacher_outside
         boundary = torch.where(torch.isfinite(boundary), boundary, 0)
-        boundary_loss = (margin_fraction * boundary - (cutoff - outside)).clamp_min(0).pow(ranking_power)
+        boundary_loss = violation(boundary, cutoff - outside)
     # Every member of an upper tie group must precede every lower group.
     separation = minimum.gather(1, groups[:, :-1]) - maximum.gather(1, groups[:, 1:])
-    violations = (margin_fraction * gaps - separation).clamp_min(0)
-    rank_loss = torch.where(gaps > 0, violations.pow(ranking_power), 0).sum(-1) / max(1, k - 1)
+    violations = violation(gaps, separation)
+    rank_loss = torch.where(gaps > 0, violations, 0).sum(-1) / max(1, k - 1)
     if k < teacher.shape[-1]:
         rank_loss = rank_loss + boundary_loss
     return dict(mse=mse, kl=kl, ranking=rank_loss)

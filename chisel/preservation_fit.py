@@ -38,6 +38,8 @@ def preservation_gradient(model, original, edited, effective, batch, config, sta
     cache = state.extras.setdefault('teacher_cache', TeacherCache(config.get('teacher_cache_bytes', 0)))
     identity = config.get('preservation_cache_key')
     sample = config.get('preservation_sample_seed') if len(inputs) < len(batch['inputs']) else None
+    measure_kl = dual_value != 0 or config.get('measure_kl', True)
+    measure_rankings = config.get('measure_rankings', True)
     gradients = {name: torch.zeros_like(value) for name, value in effective.items()}
     metrics = dict(kl=0., logit_mse=0., ranking_loss=0., maximum_kl=0., rank_changed_positions=0,
                    greedy_changed_positions=0, evaluated_positions=0)
@@ -55,7 +57,9 @@ def preservation_gradient(model, original, edited, effective, batch, config, sta
                 cache.put(key, teacher)
                 state.extras['training_forwards'] = state.extras.get('training_forwards', 0) + 1
             student = forward(model, edited, examples)
-        terms = prediction_terms(student, teacher, loss_config['top_k'], loss_config['margin_fraction'], loss_config.get('ranking_power', 2))
+        terms = prediction_terms(student, teacher, loss_config['top_k'], loss_config['margin_fraction'],
+            loss_config.get('ranking_power', 2), loss_config.get('center_logits', True),
+            compute_kl=measure_kl, compute_ranking=loss_config['ranking_weight'] != 0)
         ranking = ranking_objective(terms['ranking'], loss_config)
         loss = weight * (loss_config['logit_mse_weight'] * terms['mse'].mean()
                         + dual_value * terms['kl'].mean()
@@ -67,11 +71,18 @@ def preservation_gradient(model, original, edited, effective, batch, config, sta
         metrics['logit_mse'] += weight * terms['mse'].detach().mean().item()
         metrics['ranking_loss'] += weight * ranking.detach().item()
         metrics['maximum_kl'] = max(metrics['maximum_kl'], terms['kl'].detach().max().item())
-        changes = ranking_changes(student.detach(), teacher, loss_config['top_k'])
-        metrics['rank_changed_positions'] += changes['rank_changed'].item()
-        metrics['greedy_changed_positions'] += changes['greedy_changed'].item()
-        metrics['evaluated_positions'] += changes['positions']
+        metrics['evaluated_positions'] += student.numel() // student.shape[-1]
+        if measure_rankings:
+            changes = ranking_changes(student.detach(), teacher, loss_config['top_k'])
+            metrics['rank_changed_positions'] += changes['rank_changed'].item()
+            metrics['greedy_changed_positions'] += changes['greedy_changed'].item()
         state.extras['training_forwards'] = state.extras.get('training_forwards', 0) + 1
+    if not measure_kl:
+        for key in ('kl', 'maximum_kl'):
+            metrics.pop(key)
+    if not measure_rankings:
+        for key in ('rank_changed_positions', 'greedy_changed_positions'):
+            metrics.pop(key)
     return gradients, metrics
 
 
