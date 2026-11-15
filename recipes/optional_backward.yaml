@@ -1,0 +1,5 @@
+extends: offline.yaml
+# Experimental: native FP32 predictions, compensated TF32x3 linear gradients.
+# Qualified on A100; native backward remains the default.
+replay_model_options:
+  linear_backward: tf32x3
