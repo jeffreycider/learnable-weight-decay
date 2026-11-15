@@ -103,3 +103,18 @@ class Dual:
 
     def load_state_dict(self, state):
         self.value = state['value']
+
+
+class MultiplicativeDual(Dual):
+    """Bounded mirror-ascent step on the KL constraint normalized by its tolerance."""
+    def __init__(self, initial, learning_rate, tolerance, maximum, minimum=1e-8):
+        if not 0 < minimum <= initial <= maximum or tolerance <= 0 or learning_rate <= 0:
+            raise ValueError('multiplicative dual requires positive, ordered bounds and tolerance')
+        super().__init__(initial, learning_rate, tolerance, maximum)
+        self.minimum = minimum
+
+    def update(self, kl):
+        import math
+        residual = max(-1., min(1., kl / self.tolerance - 1.))
+        self.value = max(self.minimum, min(self.maximum,
+            self.value * math.exp(self.learning_rate * residual)))

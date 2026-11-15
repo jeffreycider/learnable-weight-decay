@@ -28,6 +28,19 @@ def initialize_shared_weights(path, sha256):
     return hook
 
 
+def initialize_fitted_probes(path, sha256):
+    """Begin an explicit new fitting stage from saved private weights and Adam state."""
+    def hook(config, state):
+        from chisel.storage import sha256 as digest
+        if config.get('resume'):
+            raise ValueError('choose either staged initialization or exact resume')
+        if digest(path) != sha256:
+            raise ValueError('private initialization checkpoint SHA256 mismatch')
+        saved = torch.load(path, map_location='cpu', weights_only=False)
+        state.extras['private_probes'].load_state_dict(saved['extras']['private_probes'])
+    return hook
+
+
 class ProbeStore:
     def __init__(self, root, config, device):
         self.root, self.config, self.device = Path(root), config, device
