@@ -1,0 +1,8 @@
+root: /lambda/nfs/crobat/chisel-muonh-yaml-v1
+bucket: muoff-research
+prefix: muonh/yaml-v1
+credentials_file: /home/ubuntu/.config/chisel/rclone.conf
+credentials_section: muoff-r2
+suffixes: [.yaml, .yml, .tar.gz, .jsonl]
+polls: 240
+poll_seconds: 60

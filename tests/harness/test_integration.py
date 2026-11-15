@@ -63,6 +63,7 @@ def test_online_resume_with_pending_credit_matches_continuation(tmp_path):
     config['post_optimizer']=[dict(name='chisel.online.after_optimizer'),dict(name='chisel.recording.checkpoint',hyperparams=dict(every=2))]
     config['output_dir']=str(tmp_path/'continuous')
     continuous=run(config)
+    assert len(list((tmp_path/'continuous').glob('checkpoint_*_rank0.pt')))==3
     config['output_dir']=str(tmp_path/'prefix');config['stop_step']=2
     prefix=run(config)
     assert prefix.extras['consolidation'].pending_graph is not None

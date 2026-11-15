@@ -83,7 +83,12 @@ def checkpoint(every):
         if (state.step + 1) % every and state.step + 1 != min(config['train_steps'], config.get('stop_step', config['train_steps'])):
             return
         path = Path(config['output_dir']) / f'latest_rank{state.extras["rank"]}.pt'
-        save_atomic(snapshot(config, state), path)
+        version = path.with_name(f'checkpoint_{state.step + 1:06d}_rank{state.extras["rank"]}.pt')
+        save_atomic(snapshot(config, state), version)
+        temporary = path.with_suffix('.link')
+        temporary.unlink(missing_ok=True)
+        os.link(version, temporary)
+        temporary.replace(path)
     return hook
 
 
