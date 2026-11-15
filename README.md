@@ -95,6 +95,22 @@ Each draft PR targets its immediate predecessor. PR30 is the user-approved delet
 | [30](https://github.com/jeffreycider/learnable-weight-decay/pull/30) | Delete obsolete and archived code; approved size exception | 60717 |
 | [31](https://github.com/jeffreycider/learnable-weight-decay/pull/31) | Migration guide and end-to-end qualification | see PR |
 
+| [32](https://github.com/jeffreycider/learnable-weight-decay/pull/32) | Allow independent raw and consolidated edits instead of forcing redistribution | 51 |
+| [33](https://github.com/jeffreycider/learnable-weight-decay/pull/33) | Define grouped effective-norm reward and exact prediction-preservation measurements | 71 |
+| [34](https://github.com/jeffreycider/learnable-weight-decay/pull/34) | Differentiate actual teacher-student preservation and audit fitted checkpoints | 105 |
+| [35](https://github.com/jeffreycider/learnable-weight-decay/pull/35) | Train offline Chisel to shrink effective weights while preserving predictions | 108 |
+| [36](https://github.com/jeffreycider/learnable-weight-decay/pull/36) | Cache replayed immutable batches without caching learned representations | 32 |
+| [37](https://github.com/jeffreycider/learnable-weight-decay/pull/37) | Allow private probes to equilibrate before each shared-backbone update | 37 |
+| [38](https://github.com/jeffreycider/learnable-weight-decay/pull/38) | Document effective-weight simplification and qualified A100 batching | 0 |
+| [39](https://github.com/jeffreycider/learnable-weight-decay/pull/39) | Import sharded PR267 trajectories with token replay and provenance checks | 136 |
+| [40](https://github.com/jeffreycider/learnable-weight-decay/pull/40) | Train prediction preservation on deterministic samples of all prior minibatches | 42 |
+| [41](https://github.com/jeffreycider/learnable-weight-decay/pull/41) | Match teacher and student compiled forward arithmetic at zero edit | 6 |
+| [42](https://github.com/jeffreycider/learnable-weight-decay/pull/42) | Restore missing archived shards and retain parallel import provenance | 53 |
+| [43](https://github.com/jeffreycider/learnable-weight-decay/pull/43) | Configure domain minibatches and linear ranking constraints for mixed fitting | 16 |
+| [44](https://github.com/jeffreycider/learnable-weight-decay/pull/44) | Restore representative FineWeb states before filling archival gaps | 25 |
+| [45](https://github.com/jeffreycider/learnable-weight-decay/pull/45) | Own restored trajectory bytes independently of legacy uploader deletion | 14 |
+| [46](https://github.com/jeffreycider/learnable-weight-decay/pull/46) | Audit actual effective Frobenius norm separately from equal-family reward | 20 |
+
 **The active tree contains the shared harness and its supported components.** Obsolete trainers are deleted from this branch. Useful SOAP, kernel and storage research is retained on [the archival branch](https://github.com/jeffreycider/learnable-weight-decay/tree/archive/research-20261115). Running jobs retain frozen source releases.
 
 ## Verification
