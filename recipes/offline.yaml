@@ -130,3 +130,4 @@ domain_settings:
   nanogpt:
     microbatch_size: 2
     preservation_examples: 64
+preservation_sample_seed: 910001
