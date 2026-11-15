@@ -23,3 +23,12 @@ def test_fineweb_index_replays_exact_batches_across_shard_tails(tmp_path):
         stream.load_state_dict(cursor_at_step(stream,cursor,index))
         actual=next(stream)
         assert all(torch.equal(a,b) for a,b in zip(actual,expected[index]))
+
+
+def test_sequence_sampling_covers_whole_batch_without_consuming_rng():
+    from chisel.preservation_fit import sampled_inputs
+    batch={'inputs':torch.arange(512)};before=torch.get_rng_state()
+    a=sampled_inputs(batch,dict(preservation_examples=16,preservation_sample_seed=10))
+    b=sampled_inputs(batch,dict(preservation_examples=16,preservation_sample_seed=10))
+    assert torch.equal(a,b) and len(a.unique())==16 and a.max()>100
+    assert torch.equal(before,torch.get_rng_state())

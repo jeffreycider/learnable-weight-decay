@@ -8,10 +8,20 @@ def logits(model, parameters, inputs):
     return torch.func.functional_call(model, parameters, (inputs,))
 
 
-def preservation_gradient(model, original, edited, effective, batch, config, state, dual_value):
+def sampled_inputs(batch, config):
     inputs = batch['inputs']
-    if config.get('preservation_examples') is not None:
-        inputs = inputs[:config['preservation_examples']]
+    count = config.get('preservation_examples')
+    if count is None or count >= len(inputs):
+        return inputs
+    if count <= 0:
+        raise ValueError('preservation_examples must be positive')
+    generator = torch.Generator().manual_seed(config['preservation_sample_seed'])
+    indices = torch.randperm(len(inputs), generator=generator)[:count].to(inputs.device)
+    return inputs.index_select(0, indices)
+
+
+def preservation_gradient(model, original, edited, effective, batch, config, state, dual_value):
+    inputs = sampled_inputs(batch, config)
     microbatch = config['microbatch_size']
     loss_config = config['preservation']
     forward = state.extras['logits_forward']
@@ -48,9 +58,7 @@ def preservation_gradient(model, original, edited, effective, batch, config, sta
 
 @torch.no_grad()
 def audit(model, original, edited, batch, config, state):
-    inputs = batch['inputs']
-    if config.get('preservation_examples') is not None:
-        inputs = inputs[:config['preservation_examples']]
+    inputs = sampled_inputs(batch, config)
     metrics = dict(kl=0., maximum_kl=0., rank_changed_positions=0, greedy_changed_positions=0, evaluated_positions=0)
     for start in range(0, len(inputs), config['microbatch_size']):
         examples = inputs[start:start + config['microbatch_size']]

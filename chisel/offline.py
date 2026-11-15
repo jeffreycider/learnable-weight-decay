@@ -98,6 +98,7 @@ def backward(config, state):
         model, base, snapshot, directions, rates, batch, source = replay.load(entry, record, batch_step=batch_step)
         probes, private_optimizer = store.load(entry['sha256'], snapshot)
         measurement_config = config | config.get('domain_settings', {}).get(entry['domain'], {})
+        measurement_config['preservation_sample_seed'] = seed_at(config['seeds']['initialization'], int(entry['sha256'][:16], 16) ^ state.step)
         for inner in range(config.get('private_steps', 1)):
             private_optimizer.zero_grad(set_to_none=True)
             _, effective, consolidated = action(state.model, probes, snapshot, directions, rates, config['radius_floor'],
