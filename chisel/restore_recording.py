@@ -34,7 +34,9 @@ def restore(config):
             copied_receipt.write_bytes(receipt.read_bytes())
         return str(target)
 
-    receipts = sorted(source.glob('rank*/step_*.pt.ready.json'))
+    priority = {step: index for index, step in enumerate(config.get('priority_steps', []))}
+    receipts = sorted(source.glob('rank*/step_*.pt.ready.json'),
+                      key=lambda path: (priority.get(int(path.name.split('_')[1].split('.')[0]), len(priority)), str(path)))
     with ThreadPoolExecutor(config['workers']) as pool:
         for index, path in enumerate(pool.map(one, receipts)):
             if index % 100 == 0:
