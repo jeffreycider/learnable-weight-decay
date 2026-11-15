@@ -89,22 +89,34 @@ def backward(config, state):
     metrics = dict(norm_reduction_pct=0., consolidated_penalty=0., kl=0., logit_mse=0., ranking_loss=0.,
                    rank_changed_positions=0., greedy_changed_positions=0., evaluated_positions=0.)
     maximum_kl = 0.
+    metrics['private_gradient_norm'] = 0.
     store, replay, dual = (state.extras[name] for name in ('private_probes', 'replay', 'dual'))
     local_entries = [entry for entry in entries if owned(entry, state)]
     for entry, record in replay.reader.iterate(local_entries):
         model, base, snapshot, directions, rates, batch, source = replay.load(entry, record)
         probes, private_optimizer = store.load(entry['sha256'], snapshot)
-        _, effective, consolidated = action(state.model, probes, snapshot, directions, rates, config['radius_floor'],
-                                             advance_optimizer=False, proposer=state.extras['proposal_forward'])
-        gradient, observed = preservation_gradient(model, base, base | effective, effective, batch, config, state, dual.value)
-        norm_change = group_norm_change(snapshot, effective)
-        storage = penalty(consolidated)
-        credit = sum((value * gradient[name].detach()).sum() for name, value in effective.items())
-        objective = (norm_change + credit + config['consolidated_penalty'] * storage) / len(entries)
-        objective.backward()
-        torch.nn.utils.clip_grad_norm_(probes.parameters(), config['gradient_clip'])
-        private_optimizer.step()
+        for inner in range(config.get('private_steps', 1)):
+            private_optimizer.zero_grad(set_to_none=True)
+            _, effective, consolidated = action(state.model, probes, snapshot, directions, rates, config['radius_floor'],
+                                                 advance_optimizer=False, proposer=state.extras['proposal_forward'])
+            gradient, observed = preservation_gradient(model, base, base | effective, effective, batch, config, state, dual.value)
+            norm_change = group_norm_change(snapshot, effective)
+            storage = penalty(consolidated)
+            credit = sum((value * gradient[name].detach()).sum() for name, value in effective.items())
+            objective = (norm_change + credit + config['consolidated_penalty'] * storage) / len(entries)
+            if inner + 1 == config.get('private_steps', 1):
+                objective.backward()
+                for parameter in probes.parameters():
+                    if parameter.grad is not None:
+                        parameter.grad.mul_(len(entries))
+            else:
+                gradients = torch.autograd.grad(objective * len(entries), tuple(probes.parameters()))
+                for parameter, gradient in zip(probes.parameters(), gradients):
+                    parameter.grad = gradient
+            private_norm = torch.nn.utils.clip_grad_norm_(probes.parameters(), config['gradient_clip'])
+            private_optimizer.step()
         store.save(entry['sha256'], state.step, probes, private_optimizer)
+        metrics['private_gradient_norm'] += private_norm.item() / len(entries)
         metrics['norm_reduction_pct'] -= 100 * norm_change.detach().item() / len(entries)
         metrics['consolidated_penalty'] += storage.detach().item() / len(entries)
         maximum_kl = max(maximum_kl, observed.pop('maximum_kl'))
@@ -114,11 +126,12 @@ def backward(config, state):
     maximum = torch.tensor(maximum_kl, device=state.extras['device'], dtype=torch.float64)
     if state.extras['world_size'] > 1:
         dist.all_reduce(maximum, op=dist.ReduceOp.MAX)
-    torch.nn.utils.clip_grad_norm_(state.model.parameters(), config['gradient_clip'])
+    shared_norm = torch.nn.utils.clip_grad_norm_(state.model.parameters(), config['gradient_clip'])
     state.extras['train_loss'] = (-metrics['norm_reduction_pct'] / 100
         + config['consolidated_penalty'] * metrics['consolidated_penalty']
         + config['preservation']['logit_mse_weight'] * metrics['logit_mse']
         + dual.value * metrics['kl'] + config['preservation']['ranking_weight'] * metrics['ranking_loss'])
-    metrics.update(maximum_kl=maximum.item(), preservation_multiplier=dual.value)
+    metrics.update(maximum_kl=maximum.item(), preservation_multiplier=dual.value, shared_gradient_norm=shared_norm.item(),
+                   private_optimizer_steps=len(entries) * config.get('private_steps', 1))
     state.extras['metrics'] = metrics
     dual.update(metrics['kl'])
