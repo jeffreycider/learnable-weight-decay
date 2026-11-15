@@ -69,3 +69,60 @@ def test_parallel_fixed_objective_cpu(tmp_path):
 @pytest.mark.skipif(torch.cuda.device_count() < 2, reason='two CUDA devices required')
 def test_parallel_fixed_objective_cuda(tmp_path):
     mp.spawn(worker, args=(str(tmp_path/'join'), 'nccl'), nprocs=2, join=True)
+
+
+def cohort_worker(rank, path, backend):
+    from chisel import cohort_diagnostics as cohort
+    torch.set_num_threads(1)
+    device = torch.device('cuda', rank) if backend == 'nccl' else torch.device('cpu')
+    if device.type == 'cuda': torch.cuda.set_device(device)
+    dist.init_process_group(backend, init_method='file://' + path, rank=rank, world_size=2)
+    try:
+        torch.manual_seed(87)
+        shared = torch.nn.Linear(4, 3, bias=False).to(device)
+        fits=[]
+        for i in range(2):
+            teacher=torch.nn.Linear(4,3,bias=False).to(device)
+            private=torch.nn.Linear(4,3,bias=False).to(device)
+            base={'weight':teacher.weight.detach().clone()}
+            fits.append(dict(kind='chisel',entry={'sha256':str(i)},model=teacher,base=base,
+                snapshot={'weight':dict(raw=base['weight'],consolidated=torch.zeros_like(base['weight']))},
+                batch={'inputs':torch.randn(4,4,device=device)},probes=private,private=torch.optim.Adam(private.parameters())))
+        state=RunState(model=shared,extras=dict(device=device,rank=rank,world_size=2,logits_forward=logits,
+            parallel_fits=fits,diagnostic_fits=[fits[rank]]))
+        config=dict(diagnostic_lbfgs=True,gradient_clip=float('inf'),microbatch_size=2,runtime={'autocast':None},
+            diagnostic_kl_weight=0.,measure_kl=False,measure_rankings=False,
+            preservation=dict(top_k=3,margin_fraction=.5,logit_mse_weight=10.,ranking_weight=0.,center_logits=False))
+        params=parallel.parameters(state)
+        state.optimizer=ClosureLBFGS(params,lr=.1,max_iter=2,line_search_fn='strong_wolfe')
+        single.edited_weights=edited
+        cohort.prepare(config,state)
+        value=state.optimizer.closure()
+        actual=[p.grad.clone() for p in params]
+        losses=[]
+        for fit in fits:
+            state.extras['fit']=fit
+            effective=edited(config,state)
+            terms=prediction_terms(logits(fit['model'],effective,fit['batch']['inputs']),
+                logits(fit['model'],fit['base'],fit['batch']['inputs']),center_logits=False,compute_kl=False,compute_ranking=False)
+            losses.append(group_norm_change(fit['snapshot'],effective)+10*terms['mse'].mean())
+        expected_loss=sum(losses)/2
+        expected=torch.autograd.grad(expected_loss,params)
+        torch.testing.assert_close(value.float(),expected_loss.detach(),rtol=2e-5,atol=2e-6)
+        for a,e in zip(actual,expected): torch.testing.assert_close(a,e,rtol=2e-5,atol=2e-6)
+        assert state.extras['metrics']['evaluated_positions']==8
+        for _ in range(3): state.optimizer.step()
+        for p in params:
+            ref=p.detach().clone(); dist.broadcast(ref,0)
+            torch.testing.assert_close(p,ref,rtol=0,atol=0)
+        assert state.extras['train_loss']<value.item()
+    finally: dist.destroy_process_group()
+
+
+def test_parallel_checkpoint_cohort_cpu(tmp_path):
+    mp.spawn(cohort_worker,args=(str(tmp_path/'cohort'),'gloo'),nprocs=2,join=True)
+
+
+@pytest.mark.skipif(torch.cuda.device_count()<2,reason='two CUDA devices required')
+def test_parallel_checkpoint_cohort_cuda(tmp_path):
+    mp.spawn(cohort_worker,args=(str(tmp_path/'cohort'),'nccl'),nprocs=2,join=True)

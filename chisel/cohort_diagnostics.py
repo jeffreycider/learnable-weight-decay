@@ -2,13 +2,14 @@
 from pathlib import Path
 import json
 import torch
+import torch.distributed as dist
 from chisel import overfit_diagnostics as single
 from chisel.diagnostic_lbfgs import ClosureLBFGS
 
 
 def setup(max_iter=3, history_size=10):
     def hook(config, state):
-        if state.extras['world_size'] != 1 or not config['diagnostic_lbfgs'] or config['gradient_clip'] != float('inf'):
+        if (state.extras['world_size'] != 1 and not config.get('distributed_diagnostic')) or not config['diagnostic_lbfgs'] or config['gradient_clip'] != float('inf'):
             raise ValueError('joint diagnostic fitting requires one device and unclipped L-BFGS gradients')
         entries = next(state.train_batches)
         if len({entry['sha256'] for entry in entries}) != len(entries):
@@ -22,6 +23,14 @@ def setup(max_iter=3, history_size=10):
                              batch=batch, probes=probes, private=private))
             parameters += list(probes.parameters())
         state.extras['diagnostic_fits'] = fits
+        world = state.extras['world_size']
+        if world > 1:
+            if len(fits) % world or len(fits) < world:
+                raise ValueError('fixed checkpoint count must divide evenly across replicas')
+            for parameter in parameters:
+                dist.broadcast(parameter.detach(), 0)
+            state.extras['parallel_fits'] = fits
+            state.extras['diagnostic_fits'] = fits[state.extras['rank']::world]
         state.optimizer = ClosureLBFGS(parameters, lr=1., max_iter=max_iter, history_size=history_size,
             line_search_fn='strong_wolfe', tolerance_grad=1e-12, tolerance_change=1e-18)
         state.backward = prepare
@@ -60,6 +69,9 @@ def prepare(config, state):
     def closure():
         state.optimizer.zero_grad(set_to_none=True)
         backward(config, state)
+        if state.extras.get('world_size', 1) > 1:
+            from chisel.parallel_diagnostics import reduce_result
+            reduce_result(state)
         state.extras['closure_evaluations'] = state.extras.get('closure_evaluations', 0) + 1
         state.extras['metrics']['cohort_gradient_evaluations'] = state.extras['closure_evaluations']
         return torch.tensor(state.extras['train_loss'], device=state.extras['device'], dtype=torch.float64)
@@ -70,10 +82,15 @@ def measure(every=5):
     def hook(config, state):
         if (state.step + 1) % every and state.step + 1 != config['train_steps']:
             return
-        for fit in state.extras['diagnostic_fits']:
-            state.extras['fit'] = fit
-            # Each checkpoint gets its own measurement stream; all weights are shared.
-            folder = Path(config['output_dir']) / 'audits' / fit['entry']['sha256']
-            folder.mkdir(parents=True, exist_ok=True)
-            single.measure(every)(config | {'output_dir': str(folder)}, state)
+        if state.extras.get('rank', 0) == 0:
+            for fit in state.extras.get('parallel_fits', state.extras['diagnostic_fits']):
+                state.extras['fit'] = fit
+                folder = Path(config['output_dir']) / 'audits' / fit['entry']['sha256']
+                folder.mkdir(parents=True, exist_ok=True)
+                single.measure(every)(config | {'output_dir': str(folder)}, state)
+        if state.extras.get('world_size', 1) > 1:
+            store = state.extras['private_probes']
+            pointers = [store.latest if state.extras['rank'] == 0 else None]
+            dist.broadcast_object_list(pointers, src=0)
+            store.latest = pointers[0]
     return hook

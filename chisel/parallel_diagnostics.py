@@ -6,7 +6,8 @@ from chisel.preservation_fit import sampled_inputs
 
 
 def parameters(state):
-    return list(state.model.parameters()) + list(state.extras['fit']['probes'].parameters())
+    fits = state.extras.get('parallel_fits', [state.extras.get('fit')])
+    return list(state.model.parameters()) + [p for fit in fits for p in fit['probes'].parameters()]
 
 
 def reduce_result(state):
@@ -25,7 +26,7 @@ def reduce_result(state):
         p.grad = flat[offset:offset + p.numel()].view_as(p).clone()
         offset += p.numel()
     metrics = state.extras['metrics']
-    keys = [k for k in metrics if not k.startswith('maximum_')]
+    keys = [k for k in metrics if not k.startswith(('maximum_', 'minimum_'))]
     values = torch.tensor([state.extras['train_loss']] + [metrics[k] for k in keys],
                           dtype=torch.float64, device=flat.device)
     dist.all_reduce(values)
@@ -34,12 +35,12 @@ def reduce_result(state):
     for key, value in zip(keys, values[1:].tolist()):
         metrics[key] = value * world if key.endswith('positions') else value
     for key in metrics:
-        if key.startswith('maximum_'):
+        if key.startswith(('maximum_', 'minimum_')):
             value = torch.tensor(metrics[key], device=flat.device, dtype=torch.float64)
-            dist.all_reduce(value, op=dist.ReduceOp.MAX)
+            dist.all_reduce(value, op=dist.ReduceOp.MAX if key.startswith('maximum_') else dist.ReduceOp.MIN)
             metrics[key] = value.item()
-    for name, group in [('shared', state.model.parameters()),
-                        ('private', state.extras['fit']['probes'].parameters())]:
+    for name, group in [('shared', list(state.model.parameters())),
+                        ('private', params[len(list(state.model.parameters())):])]:
         metrics[name + '_gradient_norm'] = torch.linalg.vector_norm(
             torch.stack([p.grad.norm() for p in group])).item()
 
