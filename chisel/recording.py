@@ -42,7 +42,11 @@ def open_run():
             recipe = root / 'recipe.yaml'
             if recipe.exists() and not config.get('resume'):
                 raise FileExistsError(f'refuse to overwrite {root}')
-            (root / ('resume.yaml' if recipe.exists() else 'recipe.yaml')).write_text(yaml.safe_dump(config, sort_keys=False))
+            if recipe.exists():
+                # A rejected resume must leave the original run provenance intact.
+                root = root / 'resume_attempts' / str(time.time_ns())
+                root.mkdir(parents=True, exist_ok=False)
+            (root / 'recipe.yaml').write_text(yaml.safe_dump(config, sort_keys=False))
             if not recipe.exists():
                 raise RuntimeError('resolved recipe was not written')
             if not (root / 'hyperparameters.yaml').exists():
