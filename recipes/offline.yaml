@@ -69,6 +69,7 @@ setup:
 - name: chisel.offline.setup
 - name: chisel.recording.open_run
 - name: chisel.recording.restore
+- name: chisel.distributed_offline.validate_resume
 pre_forward:
 - name: chisel.training.schedule
 pre_optimizer: []
@@ -80,6 +81,9 @@ post_optimizer:
   hyperparams:
     every: 1
 - name: chisel.recording.checkpoint
+  hyperparams:
+    every: 100
+- name: chisel.distributed_offline.commit
   hyperparams:
     every: 100
 teardown: []
