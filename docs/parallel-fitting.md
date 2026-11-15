@@ -18,3 +18,10 @@ Use explicit staged initialization for subsequent runs; exact restart of this
 cached diagnostic task is not implemented. This path supports Chisel, equal
 example shards, and unclipped gradients. It is a fitting diagnostic, not online
 NanoGPT training or a measurement of critical batch size.
+
+For a fixed checkpoint cohort, set `distributed_diagnostic: true` and use
+`cohort_diagnostics.setup` and `cohort_diagnostics.measure` directly. Checkpoints
+are assigned evenly to replicas, with one shared backbone and independent probe
+parameters. All replicas hold the same optimizer parameter order, average the
+local objectives/gradients, and take identical L-BFGS steps. Checkpoint count must
+be divisible by world size. Per-checkpoint measurements remain on rank zero.
