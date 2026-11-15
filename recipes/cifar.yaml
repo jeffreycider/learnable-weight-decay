@@ -22,7 +22,7 @@ optimizers:
   hidden:
     parameters: 'blocks\.\d+\.(attn\.(q|k|v|proj)|mlp\.(fc|proj))\.weight'
     optimizer: {_target_: chisel.muonh.MuonH, lr: 0.003, mu: 0.95, ns_steps: 12, compile: true}
-    tensor_lr: true
+    tensor_lr: false
     schedule: {name: chisel.schedules.cosine, kwargs: {warmup_fraction: 0.1, minimum_fraction: 0.0003333333333333333}}
   auxiliary:
     parameters: '(?!blocks\.\d+\.(attn\.(q|k|v|proj)|mlp\.(fc|proj))\.weight$).*'

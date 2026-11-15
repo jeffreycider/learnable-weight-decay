@@ -44,7 +44,8 @@ def observe(parameters, raw, consolidated, optimizer, activity):
     """Freeze all action-time inputs before the ordinary optimizer mutates storage."""
     directions = {name: optimizer.prepared[p].detach().clone() for name, p in parameters.items()}
     groups = {p: group for group in optimizer.param_groups for p in group['params']}
-    learning_rates = {name: torch.as_tensor(groups[p]['lr'], device=p.device).detach().clone() for name, p in parameters.items()}
+    learning_rates = {name: groups[p]['lr'].detach().clone() if torch.is_tensor(groups[p]['lr']) else groups[p]['lr']
+                      for name, p in parameters.items()}
     snapshot = {}
     for name, parameter in parameters.items():
         snapshot[name] = dict(raw=raw[name].detach().clone(), consolidated=consolidated[name].detach().clone(),

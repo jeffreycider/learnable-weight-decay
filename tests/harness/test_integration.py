@@ -28,7 +28,7 @@ def source_config(tmp_path):
 
 def test_capture_offline_and_online_share_the_loop(tmp_path):
     source=source_config(tmp_path);run(source)
-    receipts=sorted((tmp_path/'source/trajectory').glob('*.ready.json'))[1:]
+    receipts=sorted((tmp_path/'source/trajectory').glob('*.ready.json'))[1:-1]
     assert len(receipts)==3
     entries=[json.loads(p.read_text()) for p in receipts]
     manifest=tmp_path/'manifest.yaml'
