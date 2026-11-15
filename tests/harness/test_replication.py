@@ -29,3 +29,22 @@ def test_bad_source_cannot_publish_ready_marker(tmp_path):
     destination=tmp_path/'shared'
     with pytest.raises(ValueError,match='differs'):copy_record(source,destination,receipt)
     assert not (destination/receipt.name).exists()
+
+
+def test_mirror_finishes_only_after_records_and_restart_snapshots_are_copied(tmp_path):
+    from chisel.replicate import mirror
+    source=tmp_path/'local';source.mkdir()
+    (source/'recipe.yaml').write_text('train_steps: 2\n')
+    (source/'checkpoint_000002_rank0.pt').write_bytes(b'restart state')
+    for step in range(2):
+        folder=source/'trajectory'/str(step);folder.mkdir(parents=True)
+        value=folder/'state.pt';value.write_bytes(bytes([step]))
+        (folder/'state.ready.json').write_text(json.dumps(dict(file=value.name,bytes=1,sha256=sha256(value))))
+    (source/'queue_complete.json').write_text('{"steps": 2}')
+    destination=tmp_path/'shared'
+    mirror(dict(source=str(source),destination=str(destination),workers=2,poll_seconds=.001))
+    assert json.loads((destination/'queue_complete.json').read_text())==dict(steps=2)
+    assert (destination/'recipe.yaml').read_bytes()==(source/'recipe.yaml').read_bytes()
+    assert len(list(destination.rglob('*.ready.json')))==3
+    status=json.loads((destination/'replication_status.json').read_text())
+    assert status['copied']==status['local_ready']==3 and status['pending']==0
