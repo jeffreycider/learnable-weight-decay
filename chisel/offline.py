@@ -100,6 +100,8 @@ def next_loss_gradient(model, parameters, effective, batch, loss_spec, microbatc
 
 def backward(config, state):
     entries = next(state.train_batches)
+    curriculum = state.extras.get('offline_curriculum', {})
+    preservation_weight = curriculum.get('preservation_weight', 1.)
     metrics = dict(norm_reduction_pct=0., consolidated_penalty=0., kl=0., logit_mse=0., ranking_loss=0.,
                    rank_changed_positions=0., greedy_changed_positions=0., evaluated_positions=0.)
     maximum_kl = 0.
@@ -112,7 +114,13 @@ def backward(config, state):
         batch_step = training_batch_step(config, entry['sha256'], state.step, record['step'])
         model, base, snapshot, directions, rates, batch, source = replay.load(entry, record, batch_step=batch_step)
         probes, private_optimizer = store.load(entry['sha256'], snapshot)
+        if 'private_lr' in curriculum:
+            for group in private_optimizer.param_groups:
+                group['lr'] = curriculum['private_lr']
         measurement_config = config | config.get('domain_settings', {}).get(entry['domain'], {})
+        measurement_config = measurement_config | {'preservation': dict(measurement_config['preservation'])}
+        for key in ('logit_mse_weight', 'ranking_weight'):
+            measurement_config['preservation'][key] *= preservation_weight
         measurement_config['preservation_cache_key'] = (entry['sha256'], record['step'] if batch_step is None else batch_step)
         if config.get('resample_preservation_examples', True):
             measurement_config['preservation_sample_seed'] = seed_at(config['seeds']['initialization'], int(entry['sha256'][:16], 16) ^ state.step)
@@ -120,12 +128,12 @@ def backward(config, state):
             private_optimizer.zero_grad(set_to_none=True)
             _, effective, consolidated = action(state.model, probes, snapshot, directions, rates, config['radius_floor'],
                                                  advance_optimizer=False, proposer=state.extras['proposal_forward'])
-            gradient, observed = preservation_gradient(model, base, base | effective, effective, batch, measurement_config, state, dual.value)
+            gradient, observed = preservation_gradient(model, base, base | effective, effective, batch, measurement_config, state, preservation_weight * dual.value)
             norm_change = group_norm_change(snapshot, effective)
             storage = penalty(consolidated)
             measured_objective = (norm_change.detach().item() + config['consolidated_penalty'] * storage.detach().item()
-                + config['preservation']['logit_mse_weight'] * observed['logit_mse']
-                + dual.value * observed['kl'] + config['preservation']['ranking_weight'] * observed['ranking_loss'])
+                + preservation_weight * (config['preservation']['logit_mse_weight'] * observed['logit_mse']
+                + dual.value * observed['kl'] + config['preservation']['ranking_weight'] * observed['ranking_loss']))
             for label, selected in [('first', inner == 0), ('last', inner + 1 == config.get('private_steps', 1))]:
                 if selected:
                     metrics[f'private_{label}_objective'] += measured_objective / len(entries)
@@ -157,9 +165,11 @@ def backward(config, state):
     shared_norm = torch.nn.utils.clip_grad_norm_(state.model.parameters(), config['gradient_clip'])
     state.extras['train_loss'] = (-metrics['norm_reduction_pct'] / 100
         + config['consolidated_penalty'] * metrics['consolidated_penalty']
-        + config['preservation']['logit_mse_weight'] * metrics['logit_mse']
-        + dual.value * metrics['kl'] + config['preservation']['ranking_weight'] * metrics['ranking_loss'])
-    metrics.update(maximum_kl=maximum.item(), preservation_multiplier=dual.value, shared_gradient_norm=shared_norm.item(),
+        + preservation_weight * (config['preservation']['logit_mse_weight'] * metrics['logit_mse']
+        + dual.value * metrics['kl'] + config['preservation']['ranking_weight'] * metrics['ranking_loss']))
+    metrics.update(curriculum)
+    metrics.update(maximum_kl=maximum.item(), preservation_multiplier=preservation_weight * dual.value,
+                   kl_tolerance=dual.tolerance, shared_gradient_norm=shared_norm.item(),
                    private_optimizer_steps=len(entries) * config.get('private_steps', 1))
     cache = state.extras.get('teacher_cache')
     if cache is not None:
