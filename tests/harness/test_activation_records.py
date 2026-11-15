@@ -29,3 +29,16 @@ def test_full_capture_has_every_position():
     torch.testing.assert_close(result['modules']['0']['input'],x.flatten(0,1))
     assert result['sample_ids'].tolist()==[[i,j] for i in range(3) for j in range(2)]
     recorder.close()
+
+def test_recording_preserves_parameter_gradients():
+    import copy
+    torch.manual_seed(12)
+    baseline=torch.nn.Sequential(torch.nn.Linear(4,3),torch.nn.ReLU(),torch.nn.Linear(3,2))
+    recorded=copy.deepcopy(baseline)
+    collector=ActivationRecords(recorded,r'0|2',torch.tensor([0,3]),1);collector.begin(True)
+    x=torch.randn(4,4)
+    a=baseline(x);b=recorded(x)
+    torch.testing.assert_close(a,b,rtol=0,atol=0)
+    a.square().sum().backward();b.square().sum().backward()
+    for p,q in zip(baseline.parameters(),recorded.parameters()):torch.testing.assert_close(p.grad,q.grad,rtol=0,atol=0)
+    collector.close()

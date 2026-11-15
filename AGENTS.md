@@ -8,4 +8,7 @@
 - Checkpoint-private read/write probes and their optimizer state must actually train and persist.
 - Keep each PR below 200 changed non-test Python lines, counting additions and deletions. Do not compress code to evade the limit.
 - Run focused tests plus `tests/harness` integration tests. GPU numerical parity and compilation reuse require actual CUDA checks.
-- Keep unrelated research files and existing runs intact. Never publish run artifacts or credentials just to establish a PR base.
+- Keep useful research outside the active tree on `archive/research-20261115`. Keep existing run artifacts intact. Never publish run artifacts or credentials just to establish a PR base.
+
+- Checkpoint contents are specified in `docs/checkpoints.md`. Preserve raw gradients, replay state, source identities, and declared activation shards. Never call RMS summaries raw activations.
+- PR30 is the explicit user-approved deletion-only exception to the 200-line limit; implementation PRs still count added and removed lines.

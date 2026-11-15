@@ -1,0 +1,9 @@
+bucket: muoff-research
+credentials_file: /home/ubuntu/.config/chisel/rclone.conf
+credentials_section: muoff-r2
+workers: 2
+output: /lambda/nfs/crobat/chisel-muonh-yaml-v2/dataset.yaml
+files:
+- path: data/cifar10/train.pt
+  sha256: bd30a31d60ac015f060a490ab85c558cd52845062606fdc4a63fe91c4b6fdebd
+  key: muonh/datasets/cifar10/train-bd30a31d60ac015f060a490ab85c558cd52845062606fdc4a63fe91c4b6fdebd.pt

@@ -95,3 +95,47 @@ def watch_compilation():
         from torch._dynamo.utils import counters
         state.extras.setdefault('compile_counts',[]).append(counters['stats']['unique_graphs'])
     return hook
+
+
+def gpu_offline_worker(rank, rendezvous, config):
+    import os
+    import torch.distributed as dist
+    from chisel.harness import run
+    os.environ.update(WORLD_SIZE='2',LOCAL_RANK=str(rank))
+    torch.cuda.set_device(rank)
+    dist.init_process_group('nccl',init_method='file://'+rendezvous,rank=rank,world_size=2)
+    try:run(config)
+    finally:dist.destroy_process_group()
+
+
+def test_two_gpu_offline_private_ownership_and_shared_updates(tmp_path):
+    import json,yaml
+    import torch.multiprocessing as mp
+    from pathlib import Path
+    from chisel.harness import run,resolve
+    if torch.cuda.device_count()<2:pytest.skip('two GPUs required')
+    if not Path('data/cifar10/train.pt').exists():pytest.skip('staged CIFAR required')
+    source=resolve('recipes/cifar_capture.yaml')
+    source.update(train_steps=4,output_dir=str(tmp_path/'capture'),microbatch_size=8)
+    source['model'].update(width=32,depth=2,head_dim=8)
+    source['data'].update(batch_size=8,workers=0);source['post_optimizer']=[]
+    for site in ['pre_forward','pre_optimizer']:
+        for hook in source[site]:
+            if 'every' in hook.get('hyperparams',{}):hook['hyperparams']['every']=1
+    run(source)
+    entries=[json.loads(path.read_text()) for path in sorted((tmp_path/'capture/trajectory').rglob('state.ready.json'))[:3]]
+    manifest=tmp_path/'manifest.yaml'
+    manifest.write_text(yaml.safe_dump(dict(states=[dict(path=e['path'],sha256=e['sha256'],domain='cifar') for e in entries])))
+    cfg=resolve('recipes/offline.yaml');cfg.update(train_steps=2,output_dir=str(tmp_path/'single'),microbatch_size=8,validation_data=None)
+    cfg['model'].update(rank=2,width=32,depth=1,head_dim=8)
+    cfg['private_probes']['rank']=2;cfg['data'].update(manifest=str(manifest),batch_counts=dict(cifar=3))
+    cfg['compile']['enabled']=False;cfg['compile_gpt_loss']=False
+    single=run(cfg)
+    expected={name:value.detach().cpu().clone() for name,value in single.model.state_dict().items()}
+    del single
+    torch.cuda.empty_cache()
+    cfg['runtime']['world_size']=2;cfg['output_dir']=str(tmp_path/'distributed')
+    mp.spawn(gpu_offline_worker,args=(str(tmp_path/'nccl'),cfg),nprocs=2,join=True)
+    for rank in range(2):
+        actual=torch.load(tmp_path/f'distributed/latest_rank{rank}.pt',map_location='cpu',weights_only=False)
+        for name,value in expected.items():torch.testing.assert_close(actual['model'][name],value,rtol=2e-4,atol=3e-6)

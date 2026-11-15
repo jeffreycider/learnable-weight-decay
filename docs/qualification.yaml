@@ -1,0 +1,22 @@
+correctness:
+  cpu:
+    command: PYTHONPATH=. pytest -q tests/harness
+    successful: 45
+    cuda_skipped: 5
+    torch: 2.15.0+cpu
+  cuda:
+    command: CUDA_VISIBLE_DEVICES=6,7 PYTHONPATH=. pytest -q tests/harness/test_gpu.py tests/harness/test_fused_activation.py
+    successful: 7
+    torch: 2.11.0+cu128
+    hardware: 2 x NVIDIA A100-SXM4-80GB
+    includes:
+    - activation capture with compiled forward and backward
+    - complete capture, offline fitting, and online deployment
+    - graph reuse across checkpoint values
+    - two-GPU offline fitting compared with a single-GPU run
+    - fused activation values and gradients
+performance:
+  artifact: mlp-benchmark-a100.json
+  scope: MLP forward, backward, and Adam update only
+  finding: no meaningful improvement over native compilation; defaults unchanged
+  does_not_establish: end-to-end offline Chisel speedup or training improvement

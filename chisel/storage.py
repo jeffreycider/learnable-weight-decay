@@ -87,3 +87,20 @@ def upload_receipt(client, root, receipt, bucket, prefix):
     marker = receipt.with_name(receipt.name.replace('.ready.json', '.uploaded.json'))
     atomic_json(marker, result)
     return result
+
+
+if __name__ == '__main__':
+    import argparse
+    import yaml
+    from chisel.harness import resolve
+    parser = argparse.ArgumentParser()
+    parser.add_argument('config')
+    config = resolve(parser.parse_args().config)
+    client = client_from_config(config)
+    rows = [upload_verified(client, item['path'], config['bucket'], item['key'], item['sha256'])
+            for item in config['files']]
+    output = Path(config['output'])
+    output.parent.mkdir(parents=True, exist_ok=True)
+    temporary = output.with_suffix('.tmp')
+    temporary.write_text(yaml.safe_dump(dict(files=rows), sort_keys=False))
+    temporary.replace(output)
