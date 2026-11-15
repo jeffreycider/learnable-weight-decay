@@ -87,7 +87,9 @@ def audit(model, original, edited, batch, config, state):
 def evaluate(every):
     @torch.no_grad()
     def hook(config, state):
+        from pathlib import Path
         from chisel.harness import build
+        from chisel.storage import atomic_json
         from chisel.distributed_offline import synchronize_private_store
         from chisel.transfer import action
         from chisel.preservation import group_norm_change, effective_norm_change
@@ -109,6 +111,7 @@ def evaluate(every):
                 totals = dict(norm_reduction_pct=0., minimum_norm_reduction_pct=float('inf'),
                               effective_frobenius_reduction_pct=0., minimum_effective_frobenius_reduction_pct=float('inf'), kl=0., maximum_kl=0.,
                               rank_changed_positions=0, greedy_changed_positions=0, evaluated_positions=0)
+                checkpoint_results = []
                 for entry in entries:
                     model, base, snapshot, directions, rates, batch, _ = state.extras['replay'].load(entry)
                     probes, _ = state.extras['private_probes'].load(entry['sha256'], snapshot, base)
@@ -121,12 +124,17 @@ def evaluate(every):
                     totals['norm_reduction_pct'] += reduction / len(entries)
                     totals['minimum_norm_reduction_pct'] = min(totals['minimum_norm_reduction_pct'], reduction)
                     actual = -100 * effective_norm_change(snapshot, effective).item()
+                    checkpoint_results.append(dict(checkpoint=entry['path'], sha256=entry['sha256'],
+                        domain=entry['domain'], norm_reduction_pct=reduction,
+                        effective_frobenius_reduction_pct=actual, **result))
                     totals['effective_frobenius_reduction_pct'] += actual / len(entries)
                     totals['minimum_effective_frobenius_reduction_pct'] = min(totals['minimum_effective_frobenius_reduction_pct'], actual)
                     totals['kl'] += result.pop('kl') / len(entries)
                     totals['maximum_kl'] = max(totals['maximum_kl'], result.pop('maximum_kl'))
                     for name, value in result.items():
                         totals[name] += value
+                atomic_json(Path(config['output_dir']) / 'audits' / f'{prefix}_{state.step + 1:08d}.json',
+                            dict(shared_updates=state.step + 1, checkpoints=checkpoint_results))
                 state.extras.setdefault('metrics', {}).update({prefix + '_' + name: value for name, value in totals.items()})
         finally:
             state.model.train()
