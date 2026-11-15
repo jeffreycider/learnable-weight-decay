@@ -8,8 +8,8 @@ from chisel.recording import cpu_copy, save_atomic
 
 
 class TrajectoryWriter:
-    def __init__(self, root):
-        self.root = Path(root)
+    def __init__(self, root, filename="state.pt"):
+        self.root, self.filename = Path(root), filename
         self.pool = ThreadPoolExecutor(max_workers=1)
         self.pending = []
 
@@ -20,7 +20,7 @@ class TrajectoryWriter:
         self.pending.append(self.pool.submit(self.write, step, record))
 
     def write(self, step, record):
-        path = self.root / f'{step:06d}' / 'state.pt'
+        path = self.root / f'{step:06d}' / self.filename
         if path.exists():
             raise FileExistsError(path)
         save_atomic(record, path)
@@ -41,6 +41,8 @@ class TrajectoryWriter:
 
 def setup():
     def hook(config, state):
+        if 'activation_records' in state.extras:
+            state.extras['activation_writer'] = TrajectoryWriter(Path(config['output_dir']) / 'trajectory', f'activation_rank{state.extras["rank"]:04d}.pt')
         if state.extras['rank'] == 0:
             state.extras['trajectory_writer'] = TrajectoryWriter(Path(config['output_dir']) / 'trajectory')
     return hook
@@ -48,6 +50,8 @@ def setup():
 
 def begin(every):
     def hook(config, state):
+        if 'activation_records' in state.extras:
+            state.extras['activation_records'].begin(state.step % every == 0)
         if state.step % every == 0:
             state.extras['capture_before'] = cpu_copy(dict(
                 data=state.train_batches.state_dict(), torch_rng=torch.get_rng_state(),
@@ -57,7 +61,12 @@ def begin(every):
 
 def record(every):
     def hook(config, state):
-        if state.extras['rank'] or state.step % every:
+        if state.step % every:
+            return
+        if 'activation_records' in state.extras:
+            samples = state.extras['activation_records'].snapshot(state.extras['rank'], state.extras['world_size'])
+            state.extras['activation_writer'].submit(state.step, samples)
+        if state.extras['rank']:
             return
         if 'consolidation' in state.extras:
             raise ValueError('baseline trajectory capture expects C=0')
@@ -67,6 +76,7 @@ def record(every):
         selected = {id(p) for group in hidden.param_groups for p in group['params']}
         value = cpu_copy(dict(schema='chisel-muonh-transition-v2', config=config, step=state.step,
                               phase='after_backward_before_optimizer',
+                              activation_shards=state.extras['world_size'] if 'activation_records' in state.extras else 0,
                               gradient_units=config['gradient_units'],
                               raw_radii={name: p.detach().norm() for name, p in state.model.named_parameters() if id(p) in selected},
                               current=state.extras['capture_before'],
@@ -83,6 +93,9 @@ def record(every):
 
 def close():
     def hook(config, state):
+        if 'activation_writer' in state.extras:
+            state.extras['activation_writer'].close()
+            state.extras['activation_records'].close()
         if state.extras['rank'] == 0:
             state.extras['trajectory_writer'].close()
     return hook

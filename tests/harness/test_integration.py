@@ -5,7 +5,7 @@ import yaml
 from chisel.harness import run, resolve
 
 class ToyStream:
-    def __init__(self, device, rank=0, world_size=1):self.device,self.step=device,0
+    def __init__(self, device, rank=0, world_size=1):self.device,self.step=device,0;self.batch_size,self.seq_len=8,4
     def __next__(self):
         rng=torch.Generator().manual_seed(100+self.step);self.step+=1
         return torch.randint(16,(2,4),generator=rng).to(self.device),torch.randint(16,(2,4),generator=rng).to(self.device)
@@ -24,11 +24,13 @@ def source_config(tmp_path):
         if 'fused' in spec['optimizer']:spec['optimizer']['fused']=False
         if 'compile' in spec['optimizer']:spec['optimizer']['compile']=False
     cfg['post_optimizer']=[]
+    for hook in cfg['setup']:
+        if hook['name']=='chisel.activation_records.setup':hook['hyperparams']['samples']=4
     return cfg
 
 def test_capture_offline_and_online_share_the_loop(tmp_path):
     source=source_config(tmp_path);run(source)
-    receipts=sorted((tmp_path/'source/trajectory').rglob('*.ready.json'))[1:-1]
+    receipts=sorted((tmp_path/'source/trajectory').rglob('state.ready.json'))[1:-1]
     assert len(receipts)==3
     entries=[json.loads(p.read_text()) for p in receipts]
     manifest=tmp_path/'manifest.yaml'
