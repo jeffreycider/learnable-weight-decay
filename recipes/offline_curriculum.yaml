@@ -1,0 +1,13 @@
+extends: offline.yaml
+# An experimental curriculum, not a relaxed final acceptance criterion.
+train_steps: 1000
+private_steps: 8
+pre_forward:
+- name: chisel.performance.start
+- name: chisel.training.schedule
+- name: chisel.curriculum.schedule
+  hyperparams:
+    knots:
+    - {step: 0, preservation_weight: 0.0001, kl_tolerance: 1.0e-6, private_lr: 0.003}
+    - {step: 25, preservation_weight: 0.0001, kl_tolerance: 1.0e-6, private_lr: 0.003}
+    - {step: 250, preservation_weight: 1.0, kl_tolerance: 1.0e-12, private_lr: 0.0003}
