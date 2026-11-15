@@ -8,6 +8,7 @@ from chisel.offline_data import Replay
 from chisel.recording import save_atomic, cpu_copy
 from chisel.transfer import action, delayed_loss, penalty
 from chisel.training import autocast
+from chisel.distributed_offline import owned, finish
 
 
 class ProbeStore:
@@ -43,8 +44,6 @@ class ProbeStore:
 
 def setup():
     def hook(config, state):
-        if state.extras['world_size'] != 1:
-            raise ValueError('offline private-state writes currently require one process per run')
         state.train_batches = build(config['data'])
         state.backward = backward
         state.extras['replay'] = Replay(state.extras['device'], build(config.get('checkpoint_io', {'_target_': 'chisel.checkpoint_io.CheckpointReader'})))
@@ -85,7 +84,8 @@ def backward(config, state):
     metrics = dict(next_batch_loss=0., consolidated_penalty=0.)
     store = state.extras['private_probes']
     replay = state.extras['replay']
-    for entry, record in replay.reader.iterate(entries):
+    local_entries = [entry for entry in entries if owned(entry, state)]
+    for entry, record in replay.reader.iterate(local_entries):
         model, base, snapshot, directions, rates, batch, source = replay.load(entry, record)
         probes, private_optimizer = store.load(entry['sha256'], snapshot)
         _, effective, consolidated = action(state.extras['forward'], probes, snapshot, directions, rates, config['radius_floor'])
@@ -99,6 +99,7 @@ def backward(config, state):
         store.save(entry['sha256'], state.step, probes, private_optimizer)
         metrics['next_batch_loss'] += loss.item() / len(entries)
         metrics['consolidated_penalty'] += penalty(consolidated).detach().item() / len(entries)
+    finish(state.model, metrics, state.extras['world_size'])
     torch.nn.utils.clip_grad_norm_(state.model.parameters(), config['gradient_clip'])
     state.extras['metrics'] = metrics
     state.extras['train_loss'] = metrics['next_batch_loss'] + config['consolidated_penalty'] * metrics['consolidated_penalty']
@@ -107,6 +108,8 @@ def backward(config, state):
 def evaluate(every):
     @torch.no_grad()
     def hook(config, state):
+        if state.extras['rank']:
+            return
         if (state.step + 1) % every and state.step + 1 != config['train_steps']:
             return
         if config.get('validation_data') is None:
