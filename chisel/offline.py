@@ -33,10 +33,14 @@ class ProbeStore:
         self.root, self.config, self.device = Path(root), config, device
         self.latest = {}
 
-    def load(self, identity, snapshot):
+    def load(self, identity, snapshot, reference=None):
         with torch.random.fork_rng(devices=[]):
             torch.random.default_generator.manual_seed(seed_at(self.config['seed'], int(identity[:16], 16)))
             probes = PrivateProbes({name: item['raw'].shape for name, item in snapshot.items()}, self.config['rank']).to(self.device)
+        if identity not in self.latest and self.config.get('initialize'):
+            rule = self.config['initialize']
+            locate(rule['name'])(probes, snapshot, reference=reference,
+                seed=seed_at(self.config['seed'], int(identity[:16], 16)), **rule['kwargs'])
         optimizer = build(self.config['optimizer'], params=probes.parameters())
         if identity in self.latest:
             saved = torch.load(self.latest[identity], map_location=self.device, weights_only=False)
@@ -113,7 +117,7 @@ def backward(config, state):
     for entry, record in replay.reader.iterate(local_entries):
         batch_step = training_batch_step(config, entry['sha256'], state.step, record['step'])
         model, base, snapshot, directions, rates, batch, source = replay.load(entry, record, batch_step=batch_step)
-        probes, private_optimizer = store.load(entry['sha256'], snapshot)
+        probes, private_optimizer = store.load(entry['sha256'], snapshot, base)
         if 'private_lr' in curriculum:
             for group in private_optimizer.param_groups:
                 group['lr'] = curriculum['private_lr']
