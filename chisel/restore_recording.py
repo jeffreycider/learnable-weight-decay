@@ -3,6 +3,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 import json
 import os
+import shutil
 import yaml
 from chisel.storage import client_from_config, sha256
 
@@ -16,19 +17,22 @@ def restore(config):
         original = receipt.parent / info['file']
         target = destination / original.relative_to(source)
         target.parent.mkdir(parents=True, exist_ok=True)
+        if target.is_symlink():
+            target.unlink()
         if not target.exists():
+            temporary = target.with_suffix(target.suffix + '.restore')
             if original.exists():
-                target.symlink_to(original.resolve())
+                # The old uploader may unlink its source after backup. Own the bytes.
+                shutil.copyfile(original, temporary)
             else:
                 marker = receipt.with_name(receipt.name.replace('.ready.json', '.uploaded.json'))
                 archived = json.loads(marker.read_text())
                 if archived['sha256'] != info['sha256']:
                     raise ValueError('archive receipt differs from original')
-                temporary = target.with_suffix(target.suffix + '.restore')
                 client.download_file(archived['bucket'], archived['key'], str(temporary))
-                if temporary.stat().st_size != info['bytes'] or sha256(temporary) != info['sha256']:
-                    raise ValueError(f'restored checkpoint checksum mismatch: {target}')
-                os.replace(temporary, target)
+            if temporary.stat().st_size != info['bytes'] or sha256(temporary) != info['sha256']:
+                raise ValueError(f'restored checkpoint checksum mismatch: {target}')
+            os.replace(temporary, target)
         copied_receipt = destination / receipt.relative_to(source)
         if not copied_receipt.exists():
             copied_receipt.write_bytes(receipt.read_bytes())
