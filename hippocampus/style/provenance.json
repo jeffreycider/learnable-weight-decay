@@ -1,0 +1,31 @@
+{
+  "files": [
+    {
+      "name": "04_writing_guide.md",
+      "source": "/home/ubuntu/muoff/hippocampus/04_writing_guide.md",
+      "source_commit": "f02fb77dd5466d2355804c8617b300e89612a423",
+      "working_tree_status": "M hippocampus/04_writing_guide.md",
+      "sha256": "540e41e2a66e0371fd0b194e784742019e338617f8914275489ec54e64c71024",
+      "bytes": 22190
+    },
+    {
+      "name": "09_style_for_jeffrey.md",
+      "source": "/home/ubuntu/muoff/hippocampus/09_style_for_jeffrey.md",
+      "source_commit": "f02fb77dd5466d2355804c8617b300e89612a423",
+      "working_tree_status": "M hippocampus/09_style_for_jeffrey.md",
+      "sha256": "ccf81cf8e8ecf9fc6f30f49a43a4ccaa847f3b8dfbde36af4fdb951d83561404",
+      "bytes": 73669
+    },
+    {
+      "name": "WRITER_RULES_REFERENCE.md",
+      "source": "/home/ubuntu/muoff/hippocampus/WRITER_RULES_REFERENCE.md",
+      "source_commit": "f02fb77dd5466d2355804c8617b300e89612a423",
+      "working_tree_status": "M hippocampus/WRITER_RULES_REFERENCE.md",
+      "sha256": "17d5d5f8272f34468f5493067c8ba340324352960d7681cb7cdb6398c739e96a",
+      "bytes": 5811
+    }
+  ],
+  "supersession_context_source": "/home/ubuntu/muoff/hippocampus/01_RULES.md",
+  "supersession_context_source_sha256": "8947f1b7be6a59512c2192215d06747fcc13c0894ccfd450b541d06f52bc9987",
+  "note": "Exact working-tree files, not assumed identical to source commit; local modifications are recorded."
+}
