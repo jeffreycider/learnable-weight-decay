@@ -43,7 +43,7 @@ class Consolidation:
             transfer, _, consolidated = self.pending_graph
         with torch.no_grad():
             for name, parameter in self.parameters.items():
-                parameter.copy_(self.raw[name] - transfer[name].detach() if enabled else self.raw[name])
+                parameter.copy_(self.raw[name] + transfer[name]['raw'].detach() if enabled else self.raw[name])
                 if enabled:
                     self.consolidated[name] = consolidated[name].detach().clone()
 

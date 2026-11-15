@@ -1,10 +1,10 @@
 import torch
-from chisel.transfer import apply_transition, bound_transfer, delayed_loss
+from chisel.transfer import apply_transition, bound_edits, delayed_loss
 
 def test_transfer_conserves_effective_weights_and_keeps_radius():
     r=torch.randn(4,6,dtype=torch.float64);c=torch.randn_like(r);d=torch.randn_like(r)*100
     snapshot={'w':dict(raw=r,consolidated=c)}
-    delta=bound_transfer(snapshot,{'w':d},.01)['w']
+    edit=bound_edits(snapshot,{'w':dict(raw=-d,consolidated=d)},.01)['w'];delta=edit['consolidated']
     torch.testing.assert_close(r-delta+c+delta,r+c)
     assert (r-delta).norm()>=.01
 
@@ -15,7 +15,7 @@ def test_delayed_credit_matches_explicit_next_forward_and_finite_difference():
     phi=torch.randn(3,2,dtype=torch.float64,requires_grad=True);right=torch.randn(4,2,dtype=torch.float64)
     snapshot={'w':dict(raw=r,consolidated=c)}
     def weights(p):
-        delta=bound_transfer(snapshot,{'w':p@right.T},.001)
+        delta=bound_edits(snapshot,{'w':dict(raw=p@right.T,consolidated=.3*p@right.T)},.001)
         return apply_transition(snapshot,delta,{'w':u},{'w':.02})
     effective,consolidated=weights(phi)
     loss=(x@effective['w'].T-target).square().mean()
@@ -32,7 +32,16 @@ def test_delayed_credit_matches_explicit_next_forward_and_finite_difference():
 def test_radius_floor_survives_float32_cancellation():
     raw=torch.full((8,8),1000.)
     snapshot={'w':dict(raw=raw)}
-    transfer=bound_transfer(snapshot,{'w':raw*100},1e-6)
-    assert (raw-transfer['w']).norm()>=1e-6
+    transfer=bound_edits(snapshot,{'w':dict(raw=-raw*100,consolidated=torch.zeros_like(raw))},1e-6)
+    assert (raw+transfer['w']['raw']).norm()>=1e-6
     import pytest
-    with pytest.raises(FloatingPointError):bound_transfer(snapshot,{'w':torch.full_like(raw,float('nan'))},1e-6)
+    with pytest.raises(FloatingPointError):bound_edits(snapshot,{'w':dict(raw=torch.full_like(raw,float('nan')),consolidated=raw)},1e-6)
+
+def test_independent_edits_can_shrink_effective_weights_without_redistribution():
+    from chisel.transfer import apply_edits
+    raw=torch.randn(4,6);snapshot={'w':dict(raw=raw,consolidated=torch.zeros_like(raw))}
+    edits={'w':dict(raw=-.1*raw,consolidated=torch.zeros_like(raw))}
+    _,consolidated,effective=apply_edits(snapshot,edits)
+    torch.testing.assert_close(effective['w'],.9*raw)
+    assert effective['w'].norm()<raw.norm()
+    assert consolidated['w'].count_nonzero()==0

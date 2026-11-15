@@ -4,28 +4,33 @@ from chisel.muonh import sphere
 from chisel.network import propose
 
 
-def bound_transfer(snapshot, transfer, radius_floor):
-    """One differentiable multiplier guarantees ||R-D|| >= floor by triangle inequality."""
-    names = tuple(transfer)
+def bound_edits(snapshot, edits, radius_floor):
+    """One differentiable multiplier guarantees ||R+delta_R|| >= floor by triangle inequality."""
+    names = tuple(edits)
     radii = torch.stack([snapshot[name]['raw'].norm() for name in names])
-    sizes = torch.stack([transfer[name].norm() for name in names])
+    sizes = torch.stack([edits[name]['raw'].norm() for name in names])
+    if any(not torch.isfinite(item['consolidated']).all() for item in edits.values()):
+        raise FloatingPointError('non-finite consolidated edit')
     if not torch.isfinite(radii).all() or not torch.isfinite(sizes).all():
         raise FloatingPointError('non-finite raw matrix or proposed transfer')
     if (radii.detach() < radius_floor).any():
         raise ValueError('raw radius already below floor')
-    # A floor below subtraction precision can otherwise round a conserving
-    # transfer all the way to R=0. Reserve a small, dtype-relative margin.
+    # A floor below arithmetic precision can round an edit all the way to R=0. Reserve a small, dtype-relative margin.
     floor = torch.maximum(radii.new_full(radii.shape, radius_floor), 8 * torch.finfo(radii.dtype).eps * radii)
     scale = torch.minimum(radii.new_ones(()), ((radii - floor).clamp_min(0) / sizes.clamp_min(1e-30)).min())
-    return {name: scale * value for name, value in transfer.items()}
+    return {name: {bank: scale * value for bank, value in item.items()} for name, item in edits.items()}
 
 
-def apply_transition(snapshot, transfer, directions, learning_rates):
-    effective, consolidated = {}, {}
-    for name, delta in transfer.items():
-        raw = snapshot[name]['raw'] - delta
-        consolidated[name] = snapshot[name]['consolidated'] + delta
-        effective[name] = sphere(raw, directions[name], learning_rates[name]) + consolidated[name]
+def apply_edits(snapshot, edits):
+    raw = {name: snapshot[name]['raw'] + item['raw'] for name, item in edits.items()}
+    consolidated = {name: snapshot[name]['consolidated'] + item['consolidated'] for name, item in edits.items()}
+    effective = {name: raw[name] + consolidated[name] for name in edits}
+    return raw, consolidated, effective
+
+
+def apply_transition(snapshot, edits, directions, learning_rates):
+    raw, consolidated, _ = apply_edits(snapshot, edits)
+    effective = {name: sphere(raw[name], directions[name], learning_rates[name]) + consolidated[name] for name in edits}
     return effective, consolidated
 
 
@@ -33,10 +38,13 @@ def penalty(consolidated):
     return sum(value.square().sum() for value in consolidated.values()) / sum(value.numel() for value in consolidated.values())
 
 
-def action(actor, probes, snapshot, directions, learning_rates, radius_floor):
-    transfer = bound_transfer(snapshot, propose(actor, probes, snapshot), radius_floor)
-    effective, consolidated = apply_transition(snapshot, transfer, directions, learning_rates)
-    return transfer, effective, consolidated
+def action(actor, probes, snapshot, directions, learning_rates, radius_floor, advance_optimizer=True):
+    edits = bound_edits(snapshot, propose(actor, probes, snapshot), radius_floor)
+    if advance_optimizer:
+        effective, consolidated = apply_transition(snapshot, edits, directions, learning_rates)
+    else:
+        _, consolidated, effective = apply_edits(snapshot, edits)
+    return edits, effective, consolidated
 
 
 def delayed_loss(effective, consolidated, next_gradient, coefficient):
