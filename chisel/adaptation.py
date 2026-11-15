@@ -5,7 +5,7 @@ from chisel.harness import RunState
 from chisel.cifar import seed_at
 from chisel.transfer import action, penalty
 from chisel.preservation import group_norm_change
-from chisel.preservation_fit import preservation_gradient
+from chisel.preservation_fit import preservation_gradient, audit
 
 
 def split_batch(batch, support_examples, query_examples, seed):
@@ -35,13 +35,17 @@ def fit(config, state, identity, model, base, snapshot, directions, rates, batch
     dual = deepcopy(state.extras['dual'])
     for group in optimizer.param_groups:
         group['lr'] = settings['private_lr']
-    for _ in range(settings['steps']):
+    trace = []
+    for index in range(settings['steps']):
         optimizer.zero_grad(set_to_none=True)
         _, effective, consolidated = action(state.model, probes, snapshot, directions, rates,
             config['radius_floor'], advance_optimizer=False, proposer=state.extras.get('proposal_forward'))
         cotangents, observed = preservation_gradient(model, base, base | effective, effective,
             support, measurement, local, dual.value)
         objective = group_norm_change(snapshot, effective) + config['consolidated_penalty'] * penalty(consolidated)
+        if index == 0 or index & (index - 1) == 0:
+            trace.append(dict(private_updates=index, norm_reduction_pct=-100 * group_norm_change(snapshot, effective).item(),
+                kl=observed['kl'], rank_changed_positions=observed['rank_changed_positions']))
         objective += sum((value * cotangents[name]).sum() for name, value in effective.items())
         gradients = torch.autograd.grad(objective, tuple(probes.parameters()))
         for parameter, gradient in zip(probes.parameters(), gradients):
@@ -49,6 +53,12 @@ def fit(config, state, identity, model, base, snapshot, directions, rates, batch
         torch.nn.utils.clip_grad_norm_(probes.parameters(), config['gradient_clip'])
         optimizer.step()
         dual.update(observed['kl'])
+    with torch.no_grad():
+        _, effective, _ = action(state.model, probes, snapshot, directions, rates,
+            config['radius_floor'], advance_optimizer=False, proposer=state.extras.get('proposal_forward'))
+        final = audit(model, base, base | effective, support, measurement, local)
+        trace.append(dict(private_updates=settings['steps'],
+            norm_reduction_pct=-100 * group_norm_change(snapshot, effective).item(), **final))
     return query, measurement, dict(adaptation_steps=settings['steps'],
         adaptation_support_examples=len(support['inputs']), adaptation_query_examples=len(query['inputs']),
-        adaptation_model_forwards=local.extras['training_forwards'])
+        adaptation_fitting_model_forwards=local.extras['training_forwards'], adaptation_trace=trace)

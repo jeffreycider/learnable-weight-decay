@@ -43,7 +43,9 @@ def test_adaptation_changes_private_probes_only_and_never_reads_query_feedback()
     batch = dict(inputs=torch.randn(8, 4), targets=torch.arange(8))
     optimizer = torch.optim.Adam(probes.parameters(), lr=.001)
     query, _, metrics = fit(config, state, 'a'*64, model, base, snapshot, {}, {}, batch, probes, optimizer)
-    assert len(query['inputs']) == 3 and metrics['adaptation_model_forwards'] == 12
+    assert len(query['inputs']) == 3 and metrics['adaptation_fitting_model_forwards'] == 12
+    assert metrics['adaptation_trace'][-1]['private_updates'] == 3
+    assert metrics['adaptation_trace'][-1]['evaluated_positions'] == 4
     assert any(not torch.equal(initial[name], value) for name, value in probes.state_dict().items())
     assert state.extras['dual'].value == 1. and state.extras['training_forwards'] == 17
     for name, value in actor.state_dict().items():

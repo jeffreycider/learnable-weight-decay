@@ -6,4 +6,4 @@
 
 Set `validation_adaptation` as in [the example recipe](../recipes/validation_adaptation.yaml), plus a validation manifest disjoint from the training manifest. `steps`, `private_lr`, `support_examples`, `query_examples`, and `seed` are explicit. The requested examples must fit in the recorded minibatch. Per-checkpoint audit files include adaptation steps, example counts, and additional model-forward counts. Validation does not select the within-run schedule or stopping point.
 
-Training-checkpoint audits remain unchanged. Omitting `validation_adaptation` retains the audit of freshly initialized private probes.
+The per-checkpoint adaptation trace records support-set shrinkage and preservation before updates at powers of two, plus an audit after the final private update. Training-checkpoint audits remain unchanged. Omitting `validation_adaptation` retains the audit of freshly initialized private probes.
