@@ -40,7 +40,7 @@ class DirectEdit(nn.Module):
 def setup(kind='chisel', rank=16, initial='fitted'):
     def hook(config, state):
         entries = next(state.train_batches)
-        if len(entries) != 1 or state.extras['world_size'] != 1:
+        if len(entries) != 1 or (state.extras['world_size'] != 1 and not config.get('distributed_diagnostic')):
             raise ValueError('overfit diagnostics require exactly one checkpoint on one device')
         entry = entries[0]
         model, base, snapshot, _, _, batch, _ = state.extras['replay'].load(entry)
