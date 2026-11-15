@@ -6,7 +6,26 @@ import json
 import torch
 import random
 import numpy as np
+import shutil
+import time
+import torch.distributed as dist
 from chisel.recording import cpu_copy, save_atomic
+
+
+def wait_for_space(minimum_free_bytes, poll_seconds=10):
+    """Pause every training rank together while verified copies reclaim local space."""
+    def hook(config, state):
+        while True:
+            available = state.extras['rank'] == 0 and shutil.disk_usage(config['output_dir']).free >= minimum_free_bytes
+            ready = torch.tensor(int(available), device=state.extras['device'])
+            if state.extras['world_size'] > 1:
+                dist.broadcast(ready, src=0)
+            if ready.item():
+                return
+            if state.extras['rank'] == 0:
+                print('Waiting for verified recording copies to reclaim local space.', flush=True)
+            time.sleep(poll_seconds)
+    return hook
 
 
 class TrajectoryWriter:

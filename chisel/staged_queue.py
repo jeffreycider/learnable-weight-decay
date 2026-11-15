@@ -9,12 +9,17 @@ from chisel.harness import resolve
 from chisel.storage import atomic_json
 
 
-def staged_recipe(original, local_root, microbatch):
+def staged_recipe(original, local_root, microbatch, world_size=None, space_floor=None):
     config = resolve(original)
     name = Path(config['output_dir']).name + '-local-stage'
     config['output_dir'] = str(Path(local_root) / name)
     config['microbatch_size'] = microbatch
+    if world_size is not None:
+        config['runtime']['world_size'] = world_size
     config['pre_forward'].insert(0, dict(name='chisel.performance.start'))
+    if space_floor is not None:
+        config['pre_forward'].insert(1, dict(name='chisel.capture.wait_for_space',
+                                           hyperparams=dict(minimum_free_bytes=space_floor)))
     config['post_optimizer'].insert(0, dict(name='chisel.performance.finish'))
     for hook in config['post_optimizer']:
         if hook['name'] == 'chisel.evaluation.evaluate':
@@ -30,9 +35,16 @@ def run(spec):
     queue = Path(spec['queue_dir'])
     queue.mkdir(parents=True, exist_ok=True)
     environment = os.environ | {'OMP_NUM_THREADS': str(spec['threads'])}
-    environment.pop('CUDA_VISIBLE_DEVICES', None)
+    devices = spec.get('gpu_devices')
+    if devices is None:
+        environment.pop('CUDA_VISIBLE_DEVICES', None)
+    else:
+        if not devices or len(set(devices)) != len(devices):
+            raise ValueError('recording GPU list must be nonempty and unique')
+        environment['CUDA_VISIBLE_DEVICES'] = ','.join(map(str, devices))
     for original in spec['recipes']:
-        config = staged_recipe(original, local_root, spec['microbatch_size'])
+        config = staged_recipe(original, local_root, spec['microbatch_size'],
+                               len(devices) if devices else None, spec.get('space_floor_bytes'))
         local = Path(config['output_dir'])
         shared = shared_root / local.name
         if (shared / 'queue_complete.json').exists():
@@ -45,7 +57,9 @@ def run(spec):
         while True:
             free = subprocess.check_output(['nvidia-smi', '--query-gpu=memory.free',
                                            '--format=csv,noheader,nounits'], text=True)
-            if min(int(value) for value in free.splitlines()) >= spec['minimum_gpu_free_mib']:
+            values = [int(value) for value in free.splitlines()]
+            selected = [values[index] for index in devices] if devices else values
+            if min(selected) >= spec['minimum_gpu_free_mib']:
                 break
             time.sleep(30)
         local.mkdir()
