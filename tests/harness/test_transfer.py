@@ -27,3 +27,12 @@ def test_delayed_credit_matches_explicit_next_forward_and_finite_difference():
     plus=(x@weights(phi+epsilon*direction)[0]['w'].T-target).square().mean()
     minus=(x@weights(phi-epsilon*direction)[0]['w'].T-target).square().mean()
     torch.testing.assert_close((plus-minus)/(2*epsilon),(expected*direction).sum(),rtol=1e-5,atol=1e-8)
+
+
+def test_radius_floor_survives_float32_cancellation():
+    raw=torch.full((8,8),1000.)
+    snapshot={'w':dict(raw=raw)}
+    transfer=bound_transfer(snapshot,{'w':raw*100},1e-6)
+    assert (raw-transfer['w']).norm()>=1e-6
+    import pytest
+    with pytest.raises(FloatingPointError):bound_transfer(snapshot,{'w':torch.full_like(raw,float('nan'))},1e-6)

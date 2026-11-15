@@ -60,7 +60,7 @@ Each draft PR targets its immediate predecessor. Counts include added **and** de
 | [16](https://github.com/jeffreycider/learnable-weight-decay/pull/16) | Offline/online YAML compositions | 0 |
 | [17](https://github.com/jeffreycider/learnable-weight-decay/pull/17) | Restart, validation and compilation qualification | 89 |
 | [18](https://github.com/jeffreycider/learnable-weight-decay/pull/18) | Published CUDA arithmetic and base-source checks | 55 |
-| [19](https://github.com/jeffreycider/learnable-weight-decay/pull/19) | Review guide, checkpoint retention and metadata backup | 55 |
+| [19](https://github.com/jeffreycider/learnable-weight-decay/pull/19) | Review guide, checkpoint retention and metadata backup | 73 |
 
 **The active implementation is about 1,400 Python lines.** The source-only review base preserves existing code for comparison; old standalone trainers under `scripts/` and `baseline/train.py` are historical, not production entrypoints. The original dirty research checkout remains intact.
 

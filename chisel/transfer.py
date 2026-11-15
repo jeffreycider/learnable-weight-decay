@@ -6,13 +6,17 @@ from chisel.network import propose
 
 def bound_transfer(snapshot, transfer, radius_floor):
     """One differentiable multiplier guarantees ||R-D|| >= floor by triangle inequality."""
-    bounds = [value.new_ones(()) for value in transfer.values()]
-    for name, value in transfer.items():
-        radius = snapshot[name]['raw'].norm()
-        if radius.detach() < radius_floor:
-            raise ValueError(f'raw radius already below floor: {name}')
-        bounds.append((radius - radius_floor).clamp_min(0) / value.norm().clamp_min(1e-30))
-    scale = torch.stack(bounds).min()
+    names = tuple(transfer)
+    radii = torch.stack([snapshot[name]['raw'].norm() for name in names])
+    sizes = torch.stack([transfer[name].norm() for name in names])
+    if not torch.isfinite(radii).all() or not torch.isfinite(sizes).all():
+        raise FloatingPointError('non-finite raw matrix or proposed transfer')
+    if (radii.detach() < radius_floor).any():
+        raise ValueError('raw radius already below floor')
+    # A floor below subtraction precision can otherwise round a conserving
+    # transfer all the way to R=0. Reserve a small, dtype-relative margin.
+    floor = torch.maximum(radii.new_full(radii.shape, radius_floor), 8 * torch.finfo(radii.dtype).eps * radii)
+    scale = torch.minimum(radii.new_ones(()), ((radii - floor).clamp_min(0) / sizes.clamp_min(1e-30)).min())
     return {name: scale * value for name, value in transfer.items()}
 
 
