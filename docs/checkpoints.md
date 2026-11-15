@@ -45,3 +45,11 @@ run_name/
 **R2 is a verified backup of the shared-filesystem artifacts.** Immutable uploads check local SHA256, refuse destination collisions, read the full object back, then write a success receipt. They never delete local files. The metadata backup also saves YAML and source archives. `python -m chisel.catalog recipes/catalog.yaml` includes only nonterminal records with every declared activation shard present and verified.
 
 **Offline replay verifies source identity.** `recipes/source_compatibility.yaml` permits only listed old-hash/new-hash pairs qualified for equivalent default behavior. It is not a blanket bypass. Offline restart pins immutable private-probe versions. Distributed restart additionally requires a generation manifest covering every rank; changing world size needs explicit resharding.
+
+## Imported PR267 recordings
+
+`python -m chisel.import_recording import.yaml` merges all eight losslessly compressed rank shards after checking their SHA256 receipts. The import configuration specifies the original run, output directory, shared YAML template, dataset pattern and step list. Import checks parameter coverage and reconstructs the exact saved global token batch before publishing a new receipt.
+
+Imported records explicitly identify the original PR267 source and each shard hash. Their `source_hashes` pin the qualified replay implementation, **not** the original producer. Original residual samples and sampled head logits remain in `legacy_samples`; missing output-adjoint RMS, raw linear input/adjoint samples and Python/NumPy RNG are declared unavailable. Native v2 records retain the richer observation contract.
+
+A100 qualification on seed 0, step 1000 reproduced the published forward loss, MuonH direction and sphere update exactly. The replayed batch matched all 512 × 1024 stored tokens. This establishes compatibility for the tested state, not equivalence of every imported state.
