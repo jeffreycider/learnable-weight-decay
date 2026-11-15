@@ -131,6 +131,11 @@ def evaluate(every):
                         from chisel.adaptation import fit
                         batch, measurement_config, adaptation = fit(measurement_config, state,
                             entry['sha256'], model, base, snapshot, directions, rates, batch, probes, private_optimizer)
+                        from chisel.recording import save_atomic, cpu_copy
+                        from chisel.storage import sha256
+                        fitted = Path(config['output_dir']) / 'audits' / f'private_{state.step + 1:08d}' / f"{entry['sha256']}.pt"
+                        save_atomic(cpu_copy(dict(probes=probes.state_dict(), optimizer=private_optimizer.state_dict())), fitted)
+                        adaptation.update(adaptation_probes_file=str(fitted.resolve()), adaptation_probes_sha256=sha256(fitted))
                     _, effective, _ = action(state.extras['forward'], probes, snapshot, directions, rates,
                                              config['radius_floor'], advance_optimizer=False,
                                              proposer=state.extras.get('proposal_forward'))

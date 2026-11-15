@@ -21,7 +21,8 @@ def test_support_query_partition_is_disjoint_replayable_and_rng_isolated():
         split_batch(batch, 6, 5, 42)
 
 
-def test_adaptation_changes_private_probes_only_and_never_reads_query_feedback():
+@pytest.mark.parametrize('external_query', [False, True])
+def test_adaptation_changes_private_probes_only_and_never_reads_query_feedback(monkeypatch, external_query):
     torch.manual_seed(4)
     actor = Chisel(2, 8, 1, head_dim=4, causal=False)
     torch.nn.init.normal_(actor.proj.weight, std=.02)
@@ -41,11 +42,21 @@ def test_adaptation_changes_private_probes_only_and_never_reads_query_feedback()
         microbatch_size=2, runtime=dict(autocast=None),
         preservation=dict(top_k=4, margin_fraction=.5, logit_mse_weight=10., ranking_weight=3.))
     batch = dict(inputs=torch.randn(8, 4), targets=torch.arange(8))
+    external_inputs = torch.randn(3, 4)
+    if external_query:
+        class QueryStream:
+            def replay(self, step):
+                assert step == 0
+                return dict(inputs=external_inputs.clone(), targets=torch.arange(100, 103))
+        from chisel import adaptation
+        monkeypatch.setattr(adaptation, 'build', lambda *args, **kwargs: QueryStream())
+        config['validation_adaptation'].update(support_examples=8, query_data={'_target_': 'test.QueryStream'})
     optimizer = torch.optim.Adam(probes.parameters(), lr=.001)
     query, _, metrics = fit(config, state, 'a'*64, model, base, snapshot, {}, {}, batch, probes, optimizer)
-    assert len(query['inputs']) == 3 and metrics['adaptation_fitting_model_forwards'] == 12
+    expected_support = 8 if external_query else 4
+    assert len(query['inputs']) == 3 and metrics['adaptation_fitting_model_forwards'] == 3 * expected_support
     assert metrics['adaptation_trace'][-1]['private_updates'] == 3
-    assert metrics['adaptation_trace'][-1]['evaluated_positions'] == 4
+    assert metrics['adaptation_trace'][-1]['evaluated_positions'] == expected_support
     assert any(not torch.equal(initial[name], value) for name, value in probes.state_dict().items())
     assert state.extras['dual'].value == 1. and state.extras['training_forwards'] == 17
     for name, value in actor.state_dict().items():
@@ -53,7 +64,10 @@ def test_adaptation_changes_private_probes_only_and_never_reads_query_feedback()
     assert all(torch.equal(p.grad, torch.ones_like(p)) for p in actor.parameters())
     # Alter only query inputs, then repeat from the original private probes.
     changed = deepcopy(batch)
-    changed['inputs'][query['targets']] *= 100
+    if external_query:
+        external_inputs.mul_(100)
+    else:
+        changed['inputs'][query['targets']] *= 100
     other = PrivateProbes(dict(weight=(4, 4)), 2)
     other.load_state_dict(initial)
     fit(config, state, 'a'*64, model, base, snapshot, {}, {}, changed, other,

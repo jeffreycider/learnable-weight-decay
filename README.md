@@ -136,6 +136,7 @@ Each draft PR targets its immediate predecessor. PR30 is the user-approved delet
 | [65](https://github.com/jeffreycider/learnable-weight-decay/pull/65) | Fit held-out checkpoint probes on support examples before disjoint-query audits | 75 |
 | [66](https://github.com/jeffreycider/learnable-weight-decay/pull/66) | Start fresh private probes at an exactly zero edit with a trained backbone | 22 |
 | [67](https://github.com/jeffreycider/learnable-weight-decay/pull/67) | Optionally emphasize each microbatch's worst ranking violation | 14 |
+| [68](https://github.com/jeffreycider/learnable-weight-decay/pull/68) | Audit separate query datasets and retain fitted validation probes | 22 |
 
 **The active tree contains the shared harness and its supported components.** Obsolete trainers are deleted from this branch. Useful SOAP, kernel and storage research is retained on [the archival branch](https://github.com/jeffreycider/learnable-weight-decay/tree/archive/research-20261115). Running jobs retain frozen source releases.
 
@@ -145,6 +146,6 @@ Each draft PR targets its immediate predecessor. PR30 is the user-approved delet
 python -m pytest -q tests/harness
 ```
 
-Tests cover block parity, literal MuonH arithmetic, global gradient/activation reduction, immutable capture, deterministic augmentation across worker counts, private optimizer persistence, exact one-step VJPs, pending-credit restart, and capture → offline fitting → online execution. CUDA tests additionally check compilation reuse and a tiny CIFAR pipeline using real images. The current CPU suite has 87 successful tests and nine CUDA-only skips. A100 checks include the capture/offline/online pipeline, two-GPU offline fitting, and repeated cached versus uncached preservation gradients. Commands and environments are in [qualification.yaml](docs/qualification.yaml). These are correctness checks, not evidence of a validation-loss improvement.
+Tests cover block parity, literal MuonH arithmetic, global gradient/activation reduction, immutable capture, deterministic augmentation across worker counts, private optimizer persistence, exact one-step VJPs, pending-credit restart, and capture → offline fitting → online execution. CUDA tests additionally check compilation reuse and a tiny CIFAR pipeline using real images. The current CPU suite has 89 successful tests and nine CUDA-only skips. A100 checks include the capture/offline/online pipeline, two-GPU offline fitting, and repeated cached versus uncached preservation gradients. Commands and environments are in [qualification.yaml](docs/qualification.yaml). These are correctness checks, not evidence of a validation-loss improvement.
 
 A GitHub Actions workflow could not be published with the current OAuth token's scopes. The commands above were run directly; no green CI status is being claimed.
