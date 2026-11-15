@@ -4,7 +4,7 @@ import torch
 
 
 @torch.no_grad()
-def balance(snapshot, reference, head_dim, rank=16, max_iter=100):
+def balance(snapshot, reference, head_dim, rank=16, max_iter=100, return_factors=False):
     """Balance head-local value/output coordinates, preserving unchanged value bias.
 
     H = I + U diag(s-1) U.T, V' = HV, O' = OH^-1.
@@ -70,6 +70,7 @@ def balance(snapshot, reference, head_dim, rank=16, max_iter=100):
         optimizer.step(closure)
         scales = logarithms.detach().clamp(-math.log(2), math.log(2)).exp()
     effective = {n: (p['raw'] + p['consolidated']).clone() for n, p in snapshot.items()}
+    factors = {}
     offset = 0
     for pair in pairs:
         u, v, o = pair['u'], pair['v'], pair['o']
@@ -77,4 +78,6 @@ def balance(snapshot, reference, head_dim, rank=16, max_iter=100):
         offset += len(s)
         effective[pair['name']] = (v + (u * (s - 1)) @ (u.T @ v)).to(effective[pair['name']])
         effective[pair['other']] = (o + ((o @ u) * (s.reciprocal() - 1)) @ u.T).to(effective[pair['other']])
-    return effective
+        factors[pair['name']] = (u * (s - 1), v.T @ u)
+        factors[pair['other']] = ((o @ u) * (s.reciprocal() - 1), u)
+    return (effective, factors) if return_factors else effective
