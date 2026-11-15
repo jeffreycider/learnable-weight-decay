@@ -48,10 +48,17 @@ def setup():
         state.train_batches = build(config['data'])
         state.backward = backward
         state.extras['replay'] = Replay(state.extras['device'])
+        state.extras['loss_forward'] = torch.compile(functional_loss, fullgraph=True, dynamic=False) if config['compile_gpt_loss'] else functional_loss
         store = ProbeStore(Path(config['output_dir']) / 'private', config['private_probes'], state.extras['device'])
         state.extras['private_probes'] = store
         state.extras.setdefault('checkpointables', {})['private_probes'] = store
     return hook
+
+
+def functional_loss(model, parameters, inputs, targets, loss_fn, loss_kwargs):
+    logits = torch.func.functional_call(model, parameters, (inputs,))
+    target = targets.reshape(-1, logits.shape[-1]) if targets.is_floating_point() else targets.reshape(-1)
+    return loss_fn(logits.reshape(-1, logits.shape[-1]), target, reduction='sum', **loss_kwargs)
 
 
 def next_loss_gradient(model, parameters, effective, batch, loss_spec, microbatch, precision_config, state):
@@ -63,10 +70,8 @@ def next_loss_gradient(model, parameters, effective, batch, loss_spec, microbatc
     loss_fn = locate(loss_spec['name'])
     for start in range(0, len(inputs), microbatch):
         with autocast(precision_config, state):
-            logits = torch.func.functional_call(model, parameters, (inputs[start:start + microbatch],))
-            target = targets[start:start + microbatch]
-            target = target.reshape(-1, logits.shape[-1]) if target.is_floating_point() else target.reshape(-1)
-            loss = loss_fn(logits.reshape(-1, logits.shape[-1]), target, reduction='sum', **loss_spec['kwargs']) / count
+            loss = state.extras.get('loss_forward', functional_loss)(model, parameters,
+                inputs[start:start + microbatch], targets[start:start + microbatch], loss_fn, loss_spec['kwargs']) / count
         cotangents = torch.autograd.grad(loss, tuple(effective.values()))
         for name, gradient in zip(effective, cotangents):
             gradients[name].add_(gradient.detach())
@@ -96,3 +101,38 @@ def backward(config, state):
     torch.nn.utils.clip_grad_norm_(state.model.parameters(), config['gradient_clip'])
     state.extras['metrics'] = metrics
     state.extras['train_loss'] = metrics['next_batch_loss'] + config['consolidated_penalty'] * metrics['consolidated_penalty']
+
+
+def evaluate(every):
+    @torch.no_grad()
+    def hook(config, state):
+        if (state.step + 1) % every and state.step + 1 != config['train_steps']:
+            return
+        if config.get('validation_data') is None:
+            return
+        catalog = build(config['validation_data'])
+        training_ids = {entry['sha256'] for entries in state.train_batches.domains.values() for entry in entries}
+        entries = [entry for domain in catalog.domains.values() for entry in domain]
+        if training_ids & {entry['sha256'] for entry in entries}:
+            raise ValueError('offline training and validation checkpoints overlap')
+        totals = {}
+        state.model.eval()
+        try:
+            for entry in entries:
+                model, base, snapshot, directions, rates, batch, source = state.extras['replay'].load(entry)
+                probes, _ = state.extras['private_probes'].load(entry['sha256'], snapshot)
+                _, effective, _ = action(state.extras['forward'], probes, snapshot, directions, rates, config['radius_floor'])
+                inputs, targets = batch['inputs'], batch['targets']
+                loss = inputs.new_zeros((), dtype=torch.float32)
+                for start in range(0, len(inputs), config['microbatch_size']):
+                    with autocast(config, state):
+                        loss += state.extras['loss_forward'](model, base | effective,
+                            inputs[start:start + config['microbatch_size']], targets[start:start + config['microbatch_size']],
+                            locate(source['loss']['name']), source['loss']['kwargs'])
+                count = len(targets) if targets.is_floating_point() else targets.numel()
+                total, examples = totals.get(entry['domain'], (0., 0))
+                totals[entry['domain']] = total + loss.item() / count, examples + 1
+        finally:
+            state.model.train()
+        state.extras.setdefault('metrics', {}).update({f'validation_{domain}_loss': total / count for domain, (total, count) in totals.items()})
+    return hook

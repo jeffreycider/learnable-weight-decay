@@ -1,9 +1,18 @@
 """Replayable CIFAR batches: dataset identity + YAML + step determine every draw."""
 import hashlib
+from functools import lru_cache
+from pathlib import Path
 import random
 import numpy as np
 import torch
 from torch.utils.data import Dataset, DataLoader
+
+
+@lru_cache(maxsize=4)
+def load_dataset(path, sha256, size, modified):
+    if hashlib.sha256(Path(path).read_bytes()).hexdigest() != sha256:
+        raise ValueError('CIFAR dataset SHA256 mismatch')
+    return torch.load(path, map_location='cpu', weights_only=True)
 
 
 def seed_at(seed, index):
@@ -60,10 +69,8 @@ class CifarStream:
     def __init__(self, path, sha256, split, split_seed, heldout_per_class, batch_size,
                  repeats, minibatch_seed, augmentation_seed, transform, mix, workers,
                  device, rank=0, world_size=1):
-        from pathlib import Path
-        if hashlib.sha256(Path(path).read_bytes()).hexdigest() != sha256:
-            raise ValueError('CIFAR dataset SHA256 mismatch')
-        data = torch.load(path, map_location='cpu', weights_only=True)
+        info = Path(path).stat()
+        data = load_dataset(str(Path(path).resolve()), sha256, info.st_size, info.st_mtime_ns)
         self.dataset = Images(data, transform)
         self.indices = stratified_indices(data['labels'], split_seed, heldout_per_class, split)
         self.batch_size, self.repeats = batch_size, repeats

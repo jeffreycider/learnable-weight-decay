@@ -68,8 +68,6 @@ class Replay:
         config = record['config']
         key = yaml.safe_dump(config['model'])
         if key not in self.models:
-            # Keep one model resident; differently sized checkpoints can alternate.
-            self.models.clear()
             with torch.random.fork_rng(devices=[]):
                 self.models[key] = build(config['model']).to(self.device)
         model = self.models[key]
@@ -90,14 +88,19 @@ class Replay:
         base = {name: p.detach().clone() for name, p in model.named_parameters()}
         stream_key = yaml.safe_dump(config['data'])
         if stream_key not in self.streams:
-            self.streams.clear()
             self.streams[stream_key] = build(config['data'], device=self.device, rank=0, world_size=1)
         stream = self.streams[stream_key]
         cursor = dict(record['next_data'])
         if 'world_size' in cursor:
             cursor.update(rank=0, world_size=1)  # Replay the entire global text batch.
-        stream.load_state_dict(cursor)
-        batch = next(stream)
+        if hasattr(stream, 'replay'):
+            batch = stream.replay(cursor['step'])
+        else:
+            cached = getattr(stream, 'tokens', None) if getattr(stream, 'file_index', None) == cursor.get('file_index') else None
+            stream.load_state_dict(cursor)
+            if hasattr(stream, 'tokens'):
+                stream.tokens = cached
+            batch = next(stream)
         if isinstance(batch, tuple):
             batch = dict(inputs=batch[0], targets=batch[1])
         return model, base, snapshot, directions, rates, batch, config

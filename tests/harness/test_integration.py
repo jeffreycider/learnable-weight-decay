@@ -38,6 +38,7 @@ def test_capture_offline_and_online_share_the_loop(tmp_path):
     cfg['model'].update(rank=2,width=16,depth=1,head_dim=4,expansion=2)
     cfg['private_probes']['rank']=2
     cfg['data'].update(manifest=str(manifest),batch_counts=dict(nanogpt=2))
+    cfg['validation_data']=None;cfg['compile_gpt_loss']=False
     learned=run(cfg)
     assert learned.model.proj.weight.norm()>0
     assert len(learned.extras['private_probes'].latest)==3
@@ -51,3 +52,21 @@ def test_capture_offline_and_online_share_the_loop(tmp_path):
     assert result.extras['consolidation'].pending_graph is None
     assert result.extras['consolidation'].actor.proj.weight.norm()>0
     assert result.extras['training_forwards']==10
+
+def test_online_resume_with_pending_credit_matches_continuation(tmp_path):
+    source=source_config(tmp_path)
+    config=resolve('recipes/nanogpt_online.yaml')
+    for key in ['train_steps','runtime','compile','model','data','optimizers','microbatch_size']:
+        config[key]=source[key]
+    config['chisel']['model'].update(rank=2,width=16,depth=1,head_dim=4,expansion=2)
+    config['chisel']['start_step']=1
+    config['post_optimizer']=[dict(name='chisel.online.after_optimizer'),dict(name='chisel.recording.checkpoint',hyperparams=dict(every=2))]
+    config['output_dir']=str(tmp_path/'continuous')
+    continuous=run(config)
+    config['output_dir']=str(tmp_path/'prefix');config['stop_step']=2
+    prefix=run(config)
+    assert prefix.extras['consolidation'].pending_graph is not None
+    config['resume']=str(tmp_path/'prefix/latest_rank0.pt');config['stop_step']=5;config['output_dir']=str(tmp_path/'resumed')
+    resumed=run(config)
+    for a,b in zip(continuous.model.parameters(),resumed.model.parameters()):torch.testing.assert_close(a,b,rtol=0,atol=0)
+    for a,b in zip(continuous.extras['consolidation'].actor.parameters(),resumed.extras['consolidation'].actor.parameters()):torch.testing.assert_close(a,b,rtol=0,atol=0)

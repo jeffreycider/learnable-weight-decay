@@ -5,7 +5,7 @@ from chisel.models import CifarGPT
 
 def test_default_block_matches_original():
     original = types.ModuleType('original')
-    exec(subprocess.check_output(['git','show','review/source-base:baseline/model.py'],text=True), original.__dict__)
+    exec(subprocess.check_output(['git','show','56cfb7e5dec46ed4e95b58d5e90cfe209086805a:baseline/model.py'],text=True), original.__dict__)
     torch.manual_seed(5); expected=original.Block(128)
     torch.manual_seed(5); actual=Block(128)
     x=torch.randn(2,5,128,requires_grad=True)

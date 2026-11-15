@@ -6,6 +6,8 @@ import os
 import platform
 import random
 import time
+import tarfile
+import importlib.metadata
 import numpy as np
 import torch
 import yaml
@@ -43,7 +45,12 @@ def open_run():
             (root / ('resume.yaml' if recipe.exists() else 'recipe.yaml')).write_text(yaml.safe_dump(config, sort_keys=False))
             sources = sorted(Path('chisel').glob('*.py')) + [Path('baseline/model.py'), Path('baseline/data.py')]
             hashes = {str(path): hashlib.sha256(path.read_bytes()).hexdigest() for path in sources}
+            state.extras['source_hashes'] = hashes
             (root / 'sources.yaml').write_text(yaml.safe_dump(hashes))
+            with tarfile.open(root / 'source.tar.gz', 'w:gz') as archive:
+                for path in sources + list(Path('recipes').glob('*.yaml')) + list(Path('vendor/cifar_recipe/utils').glob('*.py')):
+                    archive.add(path, arcname=str(path))
+            (root / 'packages.yaml').write_text(yaml.safe_dump({package.metadata['Name']: package.version for package in importlib.metadata.distributions()}))
             (root / 'environment.yaml').write_text(yaml.safe_dump(dict(python=platform.python_version(), torch=str(torch.__version__), cuda=torch.version.cuda)))
         state.extras['started_at'] = time.monotonic()
     return hook
@@ -64,7 +71,7 @@ def progress(every):
 
 
 def snapshot(config, state):
-    return cpu_copy(dict(config=config, step=state.step, model=state.model.state_dict(),
+    return cpu_copy(dict(source_hashes=state.extras.get('source_hashes', {}), config=config, step=state.step, model=state.model.state_dict(),
                          optimizer=state.optimizer.state_dict(), data=state.train_batches.state_dict(),
                          torch_rng=torch.get_rng_state(), cuda_rng=torch.cuda.get_rng_state_all() if torch.cuda.is_available() else [],
                          python_rng=random.getstate(), numpy_rng=np.random.get_state(),
@@ -89,6 +96,8 @@ def restore():
         ignored = {'resume', 'output_dir', 'stop_step'}
         if {k: v for k, v in config.items() if k not in ignored} != {k: v for k, v in saved['config'].items() if k not in ignored}:
             raise ValueError('resume configuration differs from checkpoint')
+        if saved.get('source_hashes', {}) != state.extras.get('source_hashes', {}):
+            raise ValueError('resume source hashes differ from checkpoint')
         state.model.load_state_dict(saved['model'])
         state.optimizer.load_state_dict(saved['optimizer'])
         state.train_batches.load_state_dict(saved['data'])
