@@ -42,7 +42,8 @@ def fit(config, state, identity, model, base, snapshot, directions, rates, batch
     local = RunState(model=state.model, extras=dict(state.extras))
     local.extras.pop('teacher_cache', None)
     local.extras['training_forwards'] = 0
-    dual = deepcopy(state.extras['dual'])
+    bank = state.extras.get('checkpoint_duals')
+    dual = bank.get(identity) if bank is not None else deepcopy(state.extras['dual'])
     for group in optimizer.param_groups:
         group['lr'] = settings['private_lr']
     trace = []

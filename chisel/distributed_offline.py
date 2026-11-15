@@ -22,6 +22,12 @@ def synchronize_private_store(state):
     rows = [None] * world
     dist.all_gather_object(rows, local)
     store.latest = {identity: path for row in rows for identity, path in row.items()}
+    bank = state.extras.get('checkpoint_duals')
+    if bank is not None:
+        local = {identity: value for identity, value in bank.states.items()
+                 if owned(dict(sha256=identity), state)}
+        dist.all_gather_object(rows, local)
+        bank.load_state_dict({identity: value for row in rows for identity, value in row.items()})
 
 
 def finish(model, metrics, world_size):
