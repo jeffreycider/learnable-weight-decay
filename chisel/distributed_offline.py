@@ -11,6 +11,19 @@ def owned(entry, state):
     return int(entry['sha256'], 16) % state.extras['world_size'] == state.extras['rank']
 
 
+def synchronize_private_store(state):
+    """Audits need the trained private probes from every checkpoint owner."""
+    world = state.extras['world_size']
+    if world == 1:
+        return
+    store = state.extras['private_probes']
+    local = {identity: path for identity, path in store.latest.items()
+             if owned(dict(sha256=identity), state)}
+    rows = [None] * world
+    dist.all_gather_object(rows, local)
+    store.latest = {identity: path for row in rows for identity, path in row.items()}
+
+
 def finish(model, metrics, world_size):
     if world_size == 1:
         return

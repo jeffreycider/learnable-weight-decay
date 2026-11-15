@@ -116,6 +116,8 @@ Each draft PR targets its immediate predecessor. PR30 is the user-approved delet
 | [50](https://github.com/jeffreycider/learnable-weight-decay/pull/50) | Protect original run provenance during rejected resumes | 6 |
 | [51](https://github.com/jeffreycider/learnable-weight-decay/pull/51) | Qualify compiled teacher caching; leave it opt-in | 0 |
 
+| [52](https://github.com/jeffreycider/learnable-weight-decay/pull/52) | Audit trained private probes from every distributed checkpoint owner | 19 |
+
 **The active tree contains the shared harness and its supported components.** Obsolete trainers are deleted from this branch. Useful SOAP, kernel and storage research is retained on [the archival branch](https://github.com/jeffreycider/learnable-weight-decay/tree/archive/research-20261115). Running jobs retain frozen source releases.
 
 ## Verification
