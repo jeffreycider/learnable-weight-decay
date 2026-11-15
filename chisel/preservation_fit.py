@@ -88,9 +88,13 @@ def evaluate(every):
     @torch.no_grad()
     def hook(config, state):
         from chisel.harness import build
+        from chisel.distributed_offline import synchronize_private_store
         from chisel.transfer import action
         from chisel.preservation import group_norm_change, effective_norm_change
-        if state.extras['rank'] or ((state.step + 1) % every and state.step + 1 != config['train_steps']):
+        if (state.step + 1) % every and state.step + 1 != config['train_steps']:
+            return
+        synchronize_private_store(state)
+        if state.extras['rank']:
             return
         training_ids = {entry['sha256'] for rows in state.train_batches.domains.values() for entry in rows}
         state.model.eval()

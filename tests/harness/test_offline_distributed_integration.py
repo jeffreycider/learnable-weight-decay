@@ -26,6 +26,7 @@ def test_distributed_offline_matches_single_process(tmp_path):
     cfg['runtime'].update(device='cpu',autocast=None);cfg['compile']['enabled']=False;cfg['compile_proposal']=False
     cfg['model'].update(rank=2,width=16,depth=1,head_dim=4,expansion=2)
     cfg['private_probes']['rank']=2;cfg['data'].update(manifest=str(manifest),batch_counts=dict(text=3))
+    cfg['training_audit_data']=dict(cfg['data'])
     single=run(cfg)
     cfg['runtime']['world_size']=2;cfg['output_dir']=str(tmp_path/'distributed')
     mp.spawn(worker,args=(str(tmp_path/'join'),cfg),nprocs=2,join=True)
@@ -33,4 +34,9 @@ def test_distributed_offline_matches_single_process(tmp_path):
         checkpoint=torch.load(tmp_path/f'distributed/latest_rank{rank}.pt',weights_only=False)
         for name,value in single.model.state_dict().items():
             torch.testing.assert_close(checkpoint['model'][name],value,rtol=1e-4,atol=2e-6)
+        assert set(checkpoint['extras']['private_probes']['latest'])=={entry['sha256'] for entry in entries}
+    logged=json.loads((tmp_path/'distributed/metrics.jsonl').read_text().splitlines()[-1])
+    for name,value in single.extras['metrics'].items():
+        if name.startswith('train_audit_'):
+            assert abs(logged[name]-value)<1e-6,(name,logged[name],value)
     assert (tmp_path/'distributed/generation_000002.yaml').exists()
