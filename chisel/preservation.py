@@ -118,3 +118,26 @@ class MultiplicativeDual(Dual):
         residual = max(-1., min(1., kl / self.tolerance - 1.))
         self.value = max(self.minimum, min(self.maximum,
             self.value * math.exp(self.learning_rate * residual)))
+
+
+class CheckpointDuals:
+    """Independent preservation constraints, keyed by immutable source checkpoint SHA."""
+    def __init__(self, template):
+        self.template, self.states = template, {}
+
+    def get(self, identity):
+        from copy import deepcopy
+        dual = deepcopy(self.template)
+        if identity in self.states:
+            dual.load_state_dict(self.states[identity])
+        return dual
+
+    def update(self, identity, dual, kl):
+        dual.update(kl)
+        self.states[identity] = dict(dual.state_dict())
+
+    def state_dict(self):
+        return {identity: dict(value) for identity, value in self.states.items()}
+
+    def load_state_dict(self, saved):
+        self.states = {identity: dict(value) for identity, value in saved.items()}

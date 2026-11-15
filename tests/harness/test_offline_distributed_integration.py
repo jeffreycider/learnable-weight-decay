@@ -1,4 +1,5 @@
 import json
+import pytest
 import os
 from pathlib import Path
 import torch
@@ -17,7 +18,8 @@ def worker(rank, rendezvous, config):
     finally:dist.destroy_process_group()
 
 
-def test_distributed_offline_matches_single_process(tmp_path):
+@pytest.mark.parametrize("dual_scope", ["shared", "checkpoint"])
+def test_distributed_offline_matches_single_process(tmp_path, dual_scope):
     source=source_config(tmp_path);run(source)
     entries=[json.loads(path.read_text()) for path in sorted((tmp_path/'source/trajectory').rglob('state.ready.json'))[1:4]]
     manifest=tmp_path/'manifest.yaml'
@@ -27,6 +29,7 @@ def test_distributed_offline_matches_single_process(tmp_path):
     cfg['model'].update(rank=2,width=16,depth=1,head_dim=4,expansion=2)
     cfg['private_probes']['rank']=2;cfg['data'].update(manifest=str(manifest),batch_counts=dict(text=3))
     cfg['training_audit_data']=dict(cfg['data'])
+    cfg['preservation']['dual_scope']=dual_scope
     single=run(cfg)
     cfg['runtime']['world_size']=2;cfg['output_dir']=str(tmp_path/'distributed')
     mp.spawn(worker,args=(str(tmp_path/'join'),cfg),nprocs=2,join=True)
@@ -35,6 +38,9 @@ def test_distributed_offline_matches_single_process(tmp_path):
         for name,value in single.model.state_dict().items():
             torch.testing.assert_close(checkpoint['model'][name],value,rtol=1e-4,atol=2e-6)
         assert set(checkpoint['extras']['private_probes']['latest'])=={entry['sha256'] for entry in entries}
+        if dual_scope == 'checkpoint':
+            expected = single.extras['checkpoint_duals'].state_dict()
+            assert checkpoint['extras']['checkpoint_duals'] == expected
     logged=json.loads((tmp_path/'distributed/metrics.jsonl').read_text().splitlines()[-1])
     for name,value in single.extras['metrics'].items():
         if name.startswith('train_audit_'):

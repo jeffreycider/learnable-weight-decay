@@ -1,0 +1,10 @@
+extends: offline.yaml
+preservation:
+  dual_scope: checkpoint
+  dual:
+    _target_: chisel.preservation.MultiplicativeDual
+    initial: 100000.0
+    learning_rate: 0.05
+    tolerance: 1.0e-12
+    maximum: 10000000000.0
+    minimum: 0.00000001

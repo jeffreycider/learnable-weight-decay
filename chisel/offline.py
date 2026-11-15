@@ -7,7 +7,7 @@ from chisel.network import PrivateProbes, propose
 from chisel.offline_data import Replay
 from chisel.recording import save_atomic, cpu_copy
 from chisel.transfer import action, penalty
-from chisel.preservation import Dual, group_norm_change
+from chisel.preservation import CheckpointDuals, group_norm_change
 from chisel.preservation_data import training_batch_step
 from chisel.preservation_fit import logits, preservation_gradient, evaluate
 import torch.distributed as dist
@@ -84,6 +84,13 @@ def setup():
         state.extras['logits_forward'] = torch.compile(logits, **config.get('compile_gpt_loss_kwargs', dict(fullgraph=True, dynamic=False))) if config['compile_gpt_loss'] else logits
         state.extras['proposal_forward'] = torch.compile(propose, fullgraph=True, dynamic=False) if config.get('compile_proposal') else propose
         state.extras['dual'] = build(config['preservation']['dual'])
+        scope = config['preservation'].get('dual_scope', 'shared')
+        if scope not in ('shared', 'checkpoint'):
+            raise ValueError('dual_scope must be shared or checkpoint')
+        if scope == 'checkpoint':
+            bank = CheckpointDuals(state.extras['dual'])
+            state.extras['checkpoint_duals'] = bank
+            state.extras.setdefault('checkpointables', {})['checkpoint_duals'] = bank
         store = ProbeStore(Path(config['output_dir']) / 'private', config['private_probes'], state.extras['device'])
         state.extras['private_probes'] = store
         state.extras.setdefault('checkpointables', {}).update(private_probes=store, dual=state.extras['dual'])
@@ -123,11 +130,15 @@ def backward(config, state):
                    rank_changed_positions=0., greedy_changed_positions=0., evaluated_positions=0.)
     maximum_kl = 0.
     metrics['private_gradient_norm'] = 0.
+    metrics.update(kl_penalty=0., preservation_multiplier=0.)
     metrics.update(private_first_objective=0., private_last_objective=0.,
                    private_first_rank_changes=0., private_last_rank_changes=0.)
     store, replay, dual = (state.extras[name] for name in ('private_probes', 'replay', 'dual'))
+    dual_bank = state.extras.get('checkpoint_duals')
     local_entries = [entry for entry in entries if owned(entry, state)]
     for entry, record in replay.reader.iterate(local_entries):
+        if dual_bank is not None:
+            dual = dual_bank.get(entry['sha256'])
         batch_step = training_batch_step(config, entry['sha256'], state.step, record['step'])
         model, base, snapshot, directions, rates, batch, source = replay.load(entry, record, batch_step=batch_step)
         probes, private_optimizer = store.load(entry['sha256'], snapshot, base, actor=state.model)
@@ -169,6 +180,10 @@ def backward(config, state):
             private_norm = torch.nn.utils.clip_grad_norm_(probes.parameters(), config['gradient_clip'])
             private_optimizer.step()
         store.save(entry['sha256'], state.step, probes, private_optimizer)
+        metrics['kl_penalty'] += preservation_weight * dual.value * observed['kl'] / len(entries)
+        metrics['preservation_multiplier'] += preservation_weight * dual.value / len(entries)
+        if dual_bank is not None:
+            dual_bank.update(entry['sha256'], dual, observed['kl'])
         metrics['private_gradient_norm'] += private_norm.item() / len(entries)
         metrics['norm_reduction_pct'] -= 100 * norm_change.detach().item() / len(entries)
         metrics['consolidated_penalty'] += storage.detach().item() / len(entries)
@@ -182,14 +197,16 @@ def backward(config, state):
     shared_norm = torch.nn.utils.clip_grad_norm_(state.model.parameters(), config['gradient_clip'])
     state.extras['train_loss'] = (-metrics['norm_reduction_pct'] / 100
         + config['consolidated_penalty'] * metrics['consolidated_penalty']
+        + metrics['kl_penalty']
         + preservation_weight * (config['preservation']['logit_mse_weight'] * metrics['logit_mse']
-        + dual.value * metrics['kl'] + config['preservation']['ranking_weight'] * metrics['ranking_loss']))
+        + config['preservation']['ranking_weight'] * metrics['ranking_loss']))
     metrics.update(curriculum)
-    metrics.update(maximum_kl=maximum.item(), preservation_multiplier=preservation_weight * dual.value,
+    metrics.update(maximum_kl=maximum.item(),
                    kl_tolerance=dual.tolerance, shared_gradient_norm=shared_norm.item(),
                    private_optimizer_steps=len(entries) * config.get('private_steps', 1))
     cache = state.extras.get('teacher_cache')
     if cache is not None:
         metrics.update(teacher_cache_hits=cache.hits, teacher_cache_misses=cache.misses, teacher_cache_bytes=cache.bytes)
     state.extras['metrics'] = metrics
-    dual.update(metrics['kl'])
+    if dual_bank is None:
+        dual.update(metrics['kl'])
