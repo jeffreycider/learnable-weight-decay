@@ -11,4 +11,13 @@ baseline/data.py:
 chisel/import_recording.py:
 - captured: 492fc84915e9298302dd49f005457baf52e365fbe73c4f77a4bda847d98c1448
   current: 473f7bb8bbae57a38c6c7fa6cc7b54789ba1561788b4f055d952a506041d8f8d
-  reason: Import validation now requires ascending rank order; the qualified checkpoint was already imported in that order. No output arithmetic changed.
+  reason: Import validation now requires ascending rank order; the qualified checkpoint
+    was already imported in that order. No output arithmetic changed.
+- captured: 492fc84915e9298302dd49f005457baf52e365fbe73c4f77a4bda847d98c1448
+  current: c01a66b84d1318402472f5f0edfb747c884f48cb5d16d37885fcb7f1c31403ee
+  reason: Import metadata writes now support parallel workers; tensor conversion and
+    replay arithmetic unchanged.
+- captured: 473f7bb8bbae57a38c6c7fa6cc7b54789ba1561788b4f055d952a506041d8f8d
+  current: c01a66b84d1318402472f5f0edfb747c884f48cb5d16d37885fcb7f1c31403ee
+  reason: Import metadata writes now support parallel workers; tensor conversion and
+    replay arithmetic unchanged.

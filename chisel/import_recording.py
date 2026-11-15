@@ -3,6 +3,7 @@ from pathlib import Path
 import copy
 import hashlib
 import json
+import os
 import tempfile
 import torch
 import yaml
@@ -122,8 +123,10 @@ def run(spec):
             if not torch.equal(inputs, torch.cat([s['inputs'] for s in shards])) or not torch.equal(targets, torch.cat([s['targets'] for s in shards])):
                 raise ValueError('imported cursor does not reproduce recorded token batch')
             record['import_provenance']['shards'] = receipts
-            (root / 'hyperparameters.yaml').write_text(yaml.safe_dump(record['config'], sort_keys=False))
-            (root / 'import.yaml').write_text(yaml.safe_dump(spec, sort_keys=False))
+            temporary = root / f'hyperparameters.{os.getpid()}.tmp'
+            temporary.write_text(yaml.safe_dump(record['config'], sort_keys=False))
+            temporary.replace(root / 'hyperparameters.yaml')
+            (root / f'import-worker-{os.getpid()}.yaml').write_text(yaml.safe_dump(spec, sort_keys=False))
             writer.write(step, record)
             print(json.dumps(dict(imported_step=step, seed=shards[0]['seed'])), flush=True)
     finally:
