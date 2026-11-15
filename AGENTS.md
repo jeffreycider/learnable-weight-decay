@@ -12,3 +12,4 @@
 
 - Checkpoint contents are specified in `docs/checkpoints.md`. Preserve raw gradients, replay state, source identities, and declared activation shards. Never call RMS summaries raw activations.
 - PR30 is the explicit user-approved deletion-only exception to the 200-line limit; implementation PRs still count added and removed lines.
+- Project memory and report-writing references live in `hippocampus/`. The conserving-transfer-only design is superseded; do not restore it as the offline objective.
