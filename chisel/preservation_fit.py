@@ -80,7 +80,7 @@ def evaluate(every):
     def hook(config, state):
         from chisel.harness import build
         from chisel.transfer import action
-        from chisel.preservation import group_norm_change
+        from chisel.preservation import group_norm_change, effective_norm_change
         if state.extras['rank'] or ((state.step + 1) % every and state.step + 1 != config['train_steps']):
             return
         training_ids = {entry['sha256'] for rows in state.train_batches.domains.values() for entry in rows}
@@ -93,7 +93,8 @@ def evaluate(every):
                 entries = [entry for rows in catalog.domains.values() for entry in rows]
                 if prefix == 'validation' and training_ids & {entry['sha256'] for entry in entries}:
                     raise ValueError('offline training and validation checkpoints overlap')
-                totals = dict(norm_reduction_pct=0., minimum_norm_reduction_pct=float('inf'), kl=0., maximum_kl=0.,
+                totals = dict(norm_reduction_pct=0., minimum_norm_reduction_pct=float('inf'),
+                              effective_frobenius_reduction_pct=0., minimum_effective_frobenius_reduction_pct=float('inf'), kl=0., maximum_kl=0.,
                               rank_changed_positions=0, greedy_changed_positions=0, evaluated_positions=0)
                 for entry in entries:
                     model, base, snapshot, directions, rates, batch, _ = state.extras['replay'].load(entry)
@@ -106,6 +107,9 @@ def evaluate(every):
                     reduction = -100 * group_norm_change(snapshot, effective).item()
                     totals['norm_reduction_pct'] += reduction / len(entries)
                     totals['minimum_norm_reduction_pct'] = min(totals['minimum_norm_reduction_pct'], reduction)
+                    actual = -100 * effective_norm_change(snapshot, effective).item()
+                    totals['effective_frobenius_reduction_pct'] += actual / len(entries)
+                    totals['minimum_effective_frobenius_reduction_pct'] = min(totals['minimum_effective_frobenius_reduction_pct'], actual)
                     totals['kl'] += result.pop('kl') / len(entries)
                     totals['maximum_kl'] = max(totals['maximum_kl'], result.pop('maximum_kl'))
                     for name, value in result.items():

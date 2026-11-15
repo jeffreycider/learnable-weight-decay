@@ -39,3 +39,14 @@ def test_linear_rank_constraint_retains_gradient_near_a_violation():
     torch.testing.assert_close(term,torch.tensor(1e-6,dtype=torch.float64))
     torch.testing.assert_close(gradient,torch.tensor([[-1.,1.]],dtype=torch.float64))
     assert prediction_terms(teacher,teacher,top_k=2,ranking_power=1)['ranking']==0
+
+
+def test_equal_group_reward_and_total_norm_audit_are_distinct():
+    from chisel.preservation import effective_norm_change
+    snapshot={name:dict(raw=torch.ones(*shape,dtype=torch.float64),consolidated=torch.zeros(*shape,dtype=torch.float64)) for name,shape in [('small',(1,1)),('large',(100,100))]}
+    edited={'small':snapshot['small']['raw']*.5,'large':snapshot['large']['raw']*1.1}
+    assert group_norm_change(snapshot,edited)<0
+    assert effective_norm_change(snapshot,edited)>0
+    before=torch.cat([v['raw'].flatten() for v in snapshot.values()]).norm()
+    after=torch.cat([v.flatten() for v in edited.values()]).norm()
+    torch.testing.assert_close(effective_norm_change(snapshot,edited),after/before-1)
