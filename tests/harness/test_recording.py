@@ -35,3 +35,6 @@ def test_rejected_resume_cannot_overwrite_original_provenance(tmp_path, monkeypa
     assert all((root/name).read_bytes()==value for name,value in before.items())
     records=list((root/'resume_attempts').iterdir())
     assert len(records)==1 and (records[0]/'source.tar.gz').exists()
+    import yaml
+    assert yaml.safe_load((records[0]/'hyperparameters.yaml').read_text())==resumed
+    assert (records[0]/'hyperparameters.yaml').read_bytes()==(records[0]/'recipe.yaml').read_bytes()

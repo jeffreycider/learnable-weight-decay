@@ -132,7 +132,7 @@ Each draft PR targets its immediate predecessor. PR30 is the user-approved delet
 | [62](https://github.com/jeffreycider/learnable-weight-decay/pull/62) | Keep native forwards with optional compensated linear gradients | 121 |
 
 | [63](https://github.com/jeffreycider/learnable-weight-decay/pull/63) | Retain preservation and norm measurements for every audited checkpoint | 8 |
-| [64](https://github.com/jeffreycider/learnable-weight-decay/pull/64) | Record independent seeds in disjoint GPU groups with storage backpressure | 41 |
+| [64](https://github.com/jeffreycider/learnable-weight-decay/pull/64) | Record independent seeds in disjoint GPU groups with storage backpressure | 42 |
 
 **The active tree contains the shared harness and its supported components.** Obsolete trainers are deleted from this branch. Useful SOAP, kernel and storage research is retained on [the archival branch](https://github.com/jeffreycider/learnable-weight-decay/tree/archive/research-20261115). Running jobs retain frozen source releases.
 
