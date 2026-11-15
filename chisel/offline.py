@@ -8,6 +8,7 @@ from chisel.offline_data import Replay
 from chisel.recording import save_atomic, cpu_copy
 from chisel.transfer import action, penalty
 from chisel.preservation import Dual, group_norm_change
+from chisel.preservation_data import training_batch_step
 from chisel.preservation_fit import logits, preservation_gradient, evaluate
 import torch.distributed as dist
 from chisel.training import autocast
@@ -93,7 +94,8 @@ def backward(config, state):
     store, replay, dual = (state.extras[name] for name in ('private_probes', 'replay', 'dual'))
     local_entries = [entry for entry in entries if owned(entry, state)]
     for entry, record in replay.reader.iterate(local_entries):
-        model, base, snapshot, directions, rates, batch, source = replay.load(entry, record)
+        batch_step = training_batch_step(config, entry['sha256'], state.step, record['step'])
+        model, base, snapshot, directions, rates, batch, source = replay.load(entry, record, batch_step=batch_step)
         probes, private_optimizer = store.load(entry['sha256'], snapshot)
         for inner in range(config.get('private_steps', 1)):
             private_optimizer.zero_grad(set_to_none=True)
