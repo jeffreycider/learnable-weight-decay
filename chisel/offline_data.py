@@ -1,5 +1,6 @@
 """Balanced checkpoint sampling and replay of the recorded ordinary base proposal."""
 from pathlib import Path
+from collections import OrderedDict
 import hashlib
 import torch
 import yaml
@@ -50,11 +51,12 @@ class Catalog:
 
 
 class Replay:
-    def __init__(self, device, reader=None, compatibility=None, phase="next", parameter_dtype=None):
+    def __init__(self, device, reader=None, compatibility=None, phase="next", parameter_dtype=None, batch_cache_size=64):
         self.device, self.models, self.streams = device, {}, {}
         self.reader = reader or CheckpointReader()
         self.compatibility = compatibility
         self.phase, self.parameter_dtype = phase, parameter_dtype
+        self.batch_cache_size, self.batches = batch_cache_size, OrderedDict()
 
     def load(self, entry, record=None):
         record = self.reader.read(entry) if record is None else record
@@ -101,14 +103,22 @@ class Replay:
                 cursor['batches'] -= 1
         if 'world_size' in cursor:
             cursor.update(rank=0, world_size=1)  # Replay the entire global text batch.
-        if hasattr(stream, 'replay'):
-            batch = stream.replay(cursor['step'])
+        batch_key = (stream_key, repr(sorted(cursor.items())))
+        if batch_key in self.batches:
+            batch = self.batches.pop(batch_key)
         else:
-            cached = getattr(stream, 'tokens', None) if getattr(stream, 'file_index', None) == cursor.get('file_index') else None
-            stream.load_state_dict(cursor)
-            if hasattr(stream, 'tokens'):
-                stream.tokens = cached
-            batch = next(stream)
-        if isinstance(batch, tuple):
-            batch = dict(inputs=batch[0], targets=batch[1])
+            if hasattr(stream, 'replay'):
+                batch = stream.replay(cursor['step'])
+            else:
+                cached = getattr(stream, 'tokens', None) if getattr(stream, 'file_index', None) == cursor.get('file_index') else None
+                stream.load_state_dict(cursor)
+                if hasattr(stream, 'tokens'):
+                    stream.tokens = cached
+                batch = next(stream)
+            if isinstance(batch, tuple):
+                batch = dict(inputs=batch[0], targets=batch[1])
+        if self.batch_cache_size:
+            self.batches[batch_key] = batch
+            while len(self.batches) > self.batch_cache_size:
+                self.batches.popitem(last=False)
         return model, base, snapshot, directions, rates, batch, config

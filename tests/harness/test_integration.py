@@ -73,3 +73,16 @@ def test_online_resume_with_pending_credit_matches_continuation(tmp_path):
     resumed=run(config)
     for a,b in zip(continuous.model.parameters(),resumed.model.parameters()):torch.testing.assert_close(a,b,rtol=0,atol=0)
     for a,b in zip(continuous.extras['consolidation'].actor.parameters(),resumed.extras['consolidation'].actor.parameters()):torch.testing.assert_close(a,b,rtol=0,atol=0)
+
+def test_current_batch_replay_cache_reuses_only_immutable_inputs(tmp_path):
+    from chisel.offline_data import Replay
+    source=source_config(tmp_path);source['stop_step']=2;run(source)
+    receipt=json.loads((tmp_path/'source/trajectory/000001/state.ready.json').read_text())
+    replay=Replay('cpu',phase='current',batch_cache_size=1)
+    first=replay.load(receipt)[5]
+    second=replay.load(receipt)[5]
+    assert first['inputs'].data_ptr()==second['inputs'].data_ptr()
+    reference=ToyStream('cpu');reference.load_state_dict(dict(step=1));expected,_=next(reference)
+    torch.testing.assert_close(first['inputs'],expected)
+    other=json.loads((tmp_path/'source/trajectory/000000/state.ready.json').read_text());replay.load(other)
+    assert len(replay.batches)==1
