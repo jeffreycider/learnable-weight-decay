@@ -16,6 +16,7 @@ def initialize():
             device = torch.device('cuda', int(os.environ.get('LOCAL_RANK', device.index or 0)))
             torch.cuda.set_device(device)
         torch.set_num_threads(runtime['threads'])
+        torch._dynamo.config.recompile_limit = runtime['recompile_limit']
         torch.set_float32_matmul_precision(runtime['matmul_precision'])
         torch.manual_seed(config['seeds']['initialization'])
         world = int(os.environ.get('WORLD_SIZE', 1))

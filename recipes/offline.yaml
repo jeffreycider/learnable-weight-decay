@@ -6,6 +6,7 @@ runtime:
   threads: 2
   matmul_precision: high
   autocast: bfloat16
+  recompile_limit: 64
 seeds:
   initialization: 510001
 compile:

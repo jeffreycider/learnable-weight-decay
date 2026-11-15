@@ -72,7 +72,9 @@ def test_cuda_capture_offline_online_pipeline(tmp_path):
     offline['model'].update(rank=2,width=32,depth=1,head_dim=8)
     offline['private_probes']['rank']=2
     offline['data'].update(manifest=str(manifest),batch_counts=dict(cifar=2))
+    offline['post_optimizer'].append(dict(name=__name__+'.watch_compilation'))
     learned=run(offline)
+    assert learned.extras['compile_counts'][1]==learned.extras['compile_counts'][2],learned.extras['compile_counts']
     assert learned.model.proj.weight.norm()>0
     assert learned.extras['training_forwards']==6
     online=resolve('recipes/cifar_online.yaml')
@@ -86,3 +88,10 @@ def test_cuda_capture_offline_online_pipeline(tmp_path):
     assert deployed.extras['training_forwards']==4
     assert deployed.extras['consolidation'].pending_graph is None
     assert sum(x.norm() for x in deployed.extras['consolidation'].consolidated.values())>0
+
+
+def watch_compilation():
+    def hook(config,state):
+        from torch._dynamo.utils import counters
+        state.extras.setdefault('compile_counts',[]).append(counters['stats']['unique_graphs'])
+    return hook
