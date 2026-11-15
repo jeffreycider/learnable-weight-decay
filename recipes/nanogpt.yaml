@@ -98,11 +98,13 @@ data:
   filename_pattern: data/fineweb10B/fineweb_train_*.bin
   batch_size: 524288
   seq_len: 1024
+  identity_manifest: baseline/vendor/dataset_files.json
 evaluation_data:
   _target_: baseline.data.FinewebStream
   filename_pattern: data/fineweb10B/fineweb_val_*.bin
   batch_size: 10485760
   seq_len: 1024
+  identity_manifest: baseline/vendor/dataset_files.json
 setup:
 - name: chisel.training.initialize
 - name: chisel.training.model

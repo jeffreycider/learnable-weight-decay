@@ -4,6 +4,8 @@ from pathlib import Path
 import hashlib
 import json
 import torch
+import random
+import numpy as np
 from chisel.recording import cpu_copy, save_atomic
 
 
@@ -55,6 +57,7 @@ def begin(every):
         if state.step % every == 0:
             state.extras['capture_before'] = cpu_copy(dict(
                 data=state.train_batches.state_dict(), torch_rng=torch.get_rng_state(),
+                python_rng=random.getstate(), numpy_rng=np.random.get_state(),
                 cuda_rng=torch.cuda.get_rng_state_all() if torch.cuda.is_available() else []))
     return hook
 
@@ -65,6 +68,8 @@ def record(every):
             return
         if 'activation_records' in state.extras:
             samples = state.extras['activation_records'].snapshot(state.extras['rank'], state.extras['world_size'])
+            samples['gradient_units'] = config['gradient_units']
+            samples['adjoint_reduction'] = 'local_batch_mean' if config['gradient_units'] == 'mean' else 'sum'
             state.extras['activation_writer'].submit(state.step, samples)
         if state.extras['rank']:
             return
