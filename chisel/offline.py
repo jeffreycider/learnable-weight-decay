@@ -91,6 +91,8 @@ def backward(config, state):
                    rank_changed_positions=0., greedy_changed_positions=0., evaluated_positions=0.)
     maximum_kl = 0.
     metrics['private_gradient_norm'] = 0.
+    metrics.update(private_first_objective=0., private_last_objective=0.,
+                   private_first_rank_changes=0., private_last_rank_changes=0.)
     store, replay, dual = (state.extras[name] for name in ('private_probes', 'replay', 'dual'))
     local_entries = [entry for entry in entries if owned(entry, state)]
     for entry, record in replay.reader.iterate(local_entries):
@@ -108,6 +110,13 @@ def backward(config, state):
             gradient, observed = preservation_gradient(model, base, base | effective, effective, batch, measurement_config, state, dual.value)
             norm_change = group_norm_change(snapshot, effective)
             storage = penalty(consolidated)
+            measured_objective = (norm_change.detach().item() + config['consolidated_penalty'] * storage.detach().item()
+                + config['preservation']['logit_mse_weight'] * observed['logit_mse']
+                + dual.value * observed['kl'] + config['preservation']['ranking_weight'] * observed['ranking_loss'])
+            for label, selected in [('first', inner == 0), ('last', inner + 1 == config.get('private_steps', 1))]:
+                if selected:
+                    metrics[f'private_{label}_objective'] += measured_objective / len(entries)
+                    metrics[f'private_{label}_rank_changes'] += observed['rank_changed_positions']
             credit = sum((value * gradient[name].detach()).sum() for name, value in effective.items())
             objective = (norm_change + credit + config['consolidated_penalty'] * storage) / len(entries)
             if inner + 1 == config.get('private_steps', 1):
