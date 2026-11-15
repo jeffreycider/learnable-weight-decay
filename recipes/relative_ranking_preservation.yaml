@@ -1,0 +1,7 @@
+extends: offline.yaml
+preservation:
+  ranking_normalization: relative
+  rank_gap_floor: 0.000001
+  ranking_power: 2
+  ranking_reduction: microbatch_max
+  ranking_weight: 1.0

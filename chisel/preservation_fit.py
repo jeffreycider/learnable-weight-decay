@@ -55,7 +55,9 @@ def preservation_gradient(model, original, edited, effective, batch, config, sta
                 cache.put(key, teacher)
                 state.extras['training_forwards'] = state.extras.get('training_forwards', 0) + 1
             student = forward(model, edited, examples)
-        terms = prediction_terms(student, teacher, loss_config['top_k'], loss_config['margin_fraction'], loss_config.get('ranking_power', 2))
+        terms = prediction_terms(student, teacher, loss_config['top_k'], loss_config['margin_fraction'],
+            loss_config.get('ranking_power', 2), loss_config.get('ranking_normalization', 'absolute'),
+            loss_config.get('rank_gap_floor', 1e-6))
         ranking = ranking_objective(terms['ranking'], loss_config)
         loss = weight * (loss_config['logit_mse_weight'] * terms['mse'].mean()
                         + dual_value * terms['kl'].mean()
