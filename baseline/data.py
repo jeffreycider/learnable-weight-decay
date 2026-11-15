@@ -3,6 +3,7 @@ import glob
 from pathlib import Path
 import torch
 import torch.distributed as dist
+from chisel.data_identity import manifest, verify_shard
 
 
 def _load_data_shard(file: Path, pin_memory=True):
@@ -25,10 +26,13 @@ class FinewebStream:
     A cursor at the exhausted tail is valid: the next call opens the next shard.
     """
     def __init__(self, filename_pattern, batch_size, seq_len=1024, *, rank=None,
-                 world_size=None, device='cuda'):
+                 world_size=None, device='cuda', identity_manifest=None):
         self.files = sorted(Path(p) for p in glob.glob(filename_pattern))
         if not self.files:
             raise FileNotFoundError(filename_pattern)
+        self.identities, self.manifest_sha256 = manifest(identity_manifest)
+        if identity_manifest and any(path.name not in self.identities for path in self.files):
+            raise ValueError('FineWeb shard is missing from the identity manifest')
         self.rank = dist.get_rank() if rank is None else rank
         self.world_size = dist.get_world_size() if world_size is None else world_size
         if batch_size % self.world_size or batch_size // self.world_size % seq_len:
@@ -45,6 +49,10 @@ class FinewebStream:
     def _open(self):
         if self.file_index >= len(self.files):
             raise StopIteration
+        path = self.files[self.file_index]
+        if path.name in self.identities:
+            info = path.stat()
+            verify_shard(str(path.resolve()), info.st_size, info.st_mtime_ns, info.st_ctime_ns, self.identities[path.name])
         self.tokens = _load_data_shard(self.files[self.file_index], pin_memory=self.device.type == 'cuda')
 
     def __next__(self):
@@ -64,12 +72,14 @@ class FinewebStream:
         return inputs.view(-1, self.seq_len), targets.view(-1, self.seq_len)
 
     def state_dict(self):
-        return dict(file_names=[p.name for p in self.files], batch_size=self.batch_size,
+        return dict(manifest_sha256=self.manifest_sha256, file_names=[p.name for p in self.files], batch_size=self.batch_size,
                     seq_len=self.seq_len, rank=self.rank, world_size=self.world_size,
                     file_index=self.file_index, pos=self.pos, batches=self.batches)
 
     def load_state_dict(self, state):
         expected = self.state_dict()
+        if state.get('manifest_sha256') != self.manifest_sha256:
+            raise ValueError('data identity manifest differs from recorded cursor')
         for key in ('file_names', 'batch_size', 'seq_len', 'rank', 'world_size'):
             if state[key] != expected[key]:
                 raise ValueError(f'data cursor mismatch: {key}')

@@ -47,6 +47,9 @@ def open_run():
                 raise RuntimeError('resolved recipe was not written')
             if not (root / 'hyperparameters.yaml').exists():
                 (root / 'hyperparameters.yaml').write_bytes(recipe.read_bytes())
+            identity_manifest = config.get('data', {}).get('identity_manifest')
+            if identity_manifest:
+                (root / 'data_identity.json').write_bytes(Path(identity_manifest).read_bytes())
             sources = sorted(Path('chisel').glob('*.py')) + [Path('baseline/model.py'), Path('baseline/data.py')]
             hashes = {str(path): hashlib.sha256(path.read_bytes()).hexdigest() for path in sources}
             state.extras['source_hashes'] = hashes
@@ -54,6 +57,8 @@ def open_run():
             with tarfile.open(root / 'source.tar.gz', 'w:gz') as archive:
                 for path in sources + list(Path('recipes').glob('*.yaml')) + list(Path('vendor/cifar_recipe/utils').glob('*.py')):
                     archive.add(path, arcname=str(path))
+                if identity_manifest:
+                    archive.add(identity_manifest, arcname=identity_manifest)
             (root / 'packages.yaml').write_text(yaml.safe_dump({package.metadata['Name']: package.version for package in importlib.metadata.distributions()}))
             (root / 'environment.yaml').write_text(yaml.safe_dump(dict(python=platform.python_version(), torch=str(torch.__version__), cuda=torch.version.cuda)))
         state.extras['started_at'] = time.monotonic()
