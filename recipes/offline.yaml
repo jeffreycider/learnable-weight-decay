@@ -1,0 +1,40 @@
+# Checkpoint batches are accumulated before one shared-backbone Adam update.
+train_steps: 10000
+output_dir: runs/chisel-offline
+runtime: {device: cuda, world_size: 1, threads: 2, matmul_precision: high, autocast: bfloat16}
+seeds: {initialization: 510001}
+compile: {enabled: true, kwargs: {fullgraph: true, dynamic: false}}
+model: {_target_: chisel.network.Chisel, rank: 8, width: 128, depth: 3, head_dim: 32, expansion: 4, causal: false, attention_scale: 0.12, learned_qk_scale: false}
+optimizers:
+  actor:
+    parameters: '.*'
+    optimizer: {_target_: torch.optim.Adam, lr: 0.0001, betas: [0.9, 0.99], eps: 1.0e-8, weight_decay: 0.0}
+    tensor_lr: false
+    schedule: {name: chisel.schedules.cooldown, kwargs: {fraction: 1.0}}
+data:
+  _target_: chisel.offline_data.Catalog
+  manifest: datasets/mixed.yaml
+  batch_counts: {cifar: 4, nanogpt: 4}
+  seed: 610001
+private_probes:
+  seed: 710001
+  rank: 8
+  optimizer: {_target_: torch.optim.Adam, lr: 0.0001, betas: [0.9, 0.99], eps: 1.0e-8, weight_decay: 0.0}
+microbatch_size: 64
+radius_floor: 1.0e-6
+consolidated_penalty: 0.01
+gradient_clip: 1.0
+setup:
+  - {name: chisel.training.initialize}
+  - {name: chisel.training.model}
+  - {name: chisel.training.optimizers}
+  - {name: chisel.offline.setup}
+  - {name: chisel.recording.open_run}
+  - {name: chisel.recording.restore}
+pre_forward:
+  - {name: chisel.training.schedule}
+pre_optimizer: []
+post_optimizer:
+  - {name: chisel.recording.progress, hyperparams: {every: 1}}
+  - {name: chisel.recording.checkpoint, hyperparams: {every: 100}}
+teardown: []

@@ -1,0 +1,62 @@
+extends: cifar.yaml
+output_dir: runs/cifar-chisel
+chisel:
+  seed: 810001
+  model:
+    _target_: chisel.network.Chisel
+    rank: 8
+    width: 128
+    depth: 3
+    head_dim: 32
+    expansion: 4
+    causal: false
+    attention_scale: 0.12
+    learned_qk_scale: false
+  optimizer:
+    _target_: torch.optim.Adam
+    lr: 0.0001
+    betas:
+    - 0.9
+    - 0.99
+    eps: 1.0e-08
+    weight_decay: 0.0
+  optimizer_group: hidden
+  radius_floor: 1.0e-06
+  penalty: 0.01
+  gradient_clip: 1.0
+  start_step: 1000
+  interval: 1
+  pretrained: null
+setup:
+- name: chisel.training.initialize
+- name: chisel.training.model
+- name: chisel.training.optimizers
+- name: chisel.training.data
+- name: chisel.recording.open_run
+- name: chisel.observations.setup
+  hyperparams:
+    pattern: blocks\.\d+\.(attn\.(q|k|v|proj)|mlp\.(fc|proj))\.weight
+- name: chisel.online.setup
+- name: chisel.recording.restore
+pre_forward:
+- name: chisel.training.schedule
+- name: chisel.observations.begin
+  hyperparams:
+    every: 1
+pre_optimizer:
+- name: chisel.observations.finish
+- name: chisel.online.before_optimizer
+post_optimizer:
+- name: chisel.online.after_optimizer
+- name: chisel.evaluation.evaluate
+  hyperparams:
+    every: 2635
+    microbatch_size: 256
+- name: chisel.recording.progress
+  hyperparams:
+    every: 100
+- name: chisel.recording.checkpoint
+  hyperparams:
+    every: 5270
+teardown:
+- name: chisel.observations.close
