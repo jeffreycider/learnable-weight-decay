@@ -9,6 +9,10 @@ setup:
 - name: chisel.observations.setup
   hyperparams:
     pattern: blocks\.\d+\.(attn\.(q|k|v|proj)|mlp\.(fc|proj))\.weight
+- name: chisel.activation_records.setup
+  hyperparams:
+    pattern: blocks\.\d+(\.(attn\.(q|k|v|proj)|mlp\.(fc|proj)))?
+    samples: 64
 - name: chisel.capture.setup
 - name: chisel.recording.restore
 pre_forward:

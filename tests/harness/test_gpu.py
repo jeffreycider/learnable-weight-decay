@@ -63,7 +63,7 @@ def test_cuda_capture_offline_online_pipeline(tmp_path):
             if 'every' in hook.get('hyperparams',{}):hook['hyperparams']['every']=1
     captured=run(source)
     assert captured.extras['training_forwards']==4
-    receipts=sorted((tmp_path/'source/trajectory').rglob('*.ready.json'))[1:-1]
+    receipts=sorted((tmp_path/'source/trajectory').rglob('state.ready.json'))[1:-1]
     entries=[json.loads(p.read_text()) for p in receipts]
     manifest=tmp_path/'manifest.yaml'
     manifest.write_text(yaml.safe_dump(dict(states=[dict(path=e['path'],sha256=e['sha256'],domain='cifar') for e in entries])))
