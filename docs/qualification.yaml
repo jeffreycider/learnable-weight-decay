@@ -92,3 +92,17 @@ compensated_backward_qualification:
     compiled_graphs_after_warmup: 5
     limitation: five interleaved timings per backend on an A100 with concurrent recording; excludes Chisel and Adam work
   decision: optional; complete training-step throughput and convergence remain to be qualified
+
+recording_groups_qualification:
+  cpu_successful: 82
+  cuda_skipped: 9
+  cpu_seconds: 24.00
+  two_gpu_recording:
+    prescribed_iterations: 12
+    tokens_per_iteration: 524288
+    sequences_per_iteration: 512
+    microbatch_sequences_per_rank: 8
+    microbatches_per_rank_per_iteration: 32
+    warm_step_seconds_examples: [7.47, 7.22]
+    scope: A100 pilot with simultaneous eight-GPU recording; not an isolated scaling benchmark
+    checkpoint_and_trajectory_saved: true
