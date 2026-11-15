@@ -1,0 +1,5 @@
+output: datasets/cifar.yaml
+datasets:
+- root: /lambda/nfs/crobat/chisel-muonh-yaml-v1
+  receipts: '*/trajectory/**/state.ready.json'
+  domain: cifar
