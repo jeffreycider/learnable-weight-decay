@@ -3,6 +3,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 import hashlib
 import json
+import torch
 from chisel.recording import cpu_copy, save_atomic
 
 
@@ -19,7 +20,7 @@ class TrajectoryWriter:
         self.pending.append(self.pool.submit(self.write, step, record))
 
     def write(self, step, record):
-        path = self.root / f'step{step:06d}.pt'
+        path = self.root / f'{step:06d}' / 'state.pt'
         if path.exists():
             raise FileExistsError(path)
         save_atomic(record, path)
@@ -45,13 +46,30 @@ def setup():
     return hook
 
 
+def begin(every):
+    def hook(config, state):
+        if state.step % every == 0:
+            state.extras['capture_before'] = cpu_copy(dict(
+                data=state.train_batches.state_dict(), torch_rng=torch.get_rng_state(),
+                cuda_rng=torch.cuda.get_rng_state_all() if torch.cuda.is_available() else []))
+    return hook
+
+
 def record(every):
     def hook(config, state):
         if state.extras['rank'] or state.step % every:
             return
         if 'consolidation' in state.extras:
             raise ValueError('baseline trajectory capture expects C=0')
-        value = cpu_copy(dict(schema='chisel-muonh-transition-v1', config=config, step=state.step,
+        if 'capture_before' not in state.extras:
+            raise RuntimeError('capture.begin must run before the ordinary training pass')
+        hidden = state.optimizer.groups['hidden']
+        selected = {id(p) for group in hidden.param_groups for p in group['params']}
+        value = cpu_copy(dict(schema='chisel-muonh-transition-v2', config=config, step=state.step,
+                              phase='after_backward_before_optimizer',
+                              gradient_units=config['gradient_units'],
+                              raw_radii={name: p.detach().norm() for name, p in state.model.named_parameters() if id(p) in selected},
+                              current=state.extras['capture_before'],
                               source_hashes={name: digest for name, digest in state.extras['source_hashes'].items()
                                              if name in ('baseline/model.py', 'baseline/data.py', 'chisel/models.py', 'chisel/muonh.py', 'chisel/cifar.py')},
                               has_next_training_step=state.step + 1 < config['train_steps'],

@@ -63,7 +63,7 @@ class Replay:
                 raise ValueError('offline checkpoint SHA256 mismatch')
             self.verified.add(signature)
         record = torch.load(path, map_location=self.device, weights_only=False)
-        if record['schema'] != 'chisel-muonh-transition-v1':
+        if record['schema'] not in ('chisel-muonh-transition-v1', 'chisel-muonh-transition-v2'):
             raise ValueError('unsupported transition schema')
         for source, digest in record['source_hashes'].items():
             if hashlib.sha256(Path(source).read_bytes()).hexdigest() != digest:

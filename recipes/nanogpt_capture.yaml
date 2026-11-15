@@ -12,6 +12,9 @@ setup:
 - name: chisel.capture.setup
 - name: chisel.recording.restore
 pre_forward:
+- name: chisel.capture.begin
+  hyperparams:
+    every: 1
 - name: chisel.training.schedule
 - name: chisel.observations.begin
   hyperparams:
