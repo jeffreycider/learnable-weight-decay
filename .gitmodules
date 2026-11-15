@@ -1,3 +1,0 @@
-[submodule "vendor/cifar_recipe"]
-	path = vendor/cifar_recipe
-	url = https://github.com/hananshafi/vits-for-small-scale-datasets.git
