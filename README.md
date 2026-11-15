@@ -108,7 +108,13 @@ Each draft PR targets its immediate predecessor. PR30 is the user-approved delet
 | [43](https://github.com/jeffreycider/learnable-weight-decay/pull/43) | Configure domain minibatches and linear ranking constraints for mixed fitting | 16 |
 | [44](https://github.com/jeffreycider/learnable-weight-decay/pull/44) | Restore representative FineWeb states before filling archival gaps | 25 |
 | [45](https://github.com/jeffreycider/learnable-weight-decay/pull/45) | Own restored trajectory bytes independently of legacy uploader deletion | 14 |
-| [46](https://github.com/jeffreycider/learnable-weight-decay/pull/46) | Audit actual effective Frobenius norm separately from equal-family reward | 20 |
+| [46](https://github.com/jeffreycider/learnable-weight-decay/pull/46) | Audit actual effective Frobenius norm separately from equal-family reward | 23 |
+
+| [47](https://github.com/jeffreycider/learnable-weight-decay/pull/47) | Cache immutable teacher logits when reuse is worthwhile | 50 |
+| [48](https://github.com/jeffreycider/learnable-weight-decay/pull/48) | Cache source checkpoints without mutating recorded optimizer state | 21 |
+| [49](https://github.com/jeffreycider/learnable-weight-decay/pull/49) | Keep the corrected design and writing references in project memory | 0 |
+| [50](https://github.com/jeffreycider/learnable-weight-decay/pull/50) | Protect original run provenance during rejected resumes | 6 |
+| [51](https://github.com/jeffreycider/learnable-weight-decay/pull/51) | Qualify compiled teacher caching; leave it opt-in | 0 |
 
 **The active tree contains the shared harness and its supported components.** Obsolete trainers are deleted from this branch. Useful SOAP, kernel and storage research is retained on [the archival branch](https://github.com/jeffreycider/learnable-weight-decay/tree/archive/research-20261115). Running jobs retain frozen source releases.
 
@@ -118,6 +124,6 @@ Each draft PR targets its immediate predecessor. PR30 is the user-approved delet
 python -m pytest -q tests/harness
 ```
 
-Tests cover block parity, literal MuonH arithmetic, global gradient/activation reduction, immutable capture, deterministic augmentation across worker counts, private optimizer persistence, exact one-step VJPs, pending-credit restart, and capture → offline fitting → online execution. CUDA tests additionally check compilation reuse and a tiny CIFAR pipeline using real images. Qualification includes 45 CPU tests and seven A100 checks, including two-GPU offline fitting. Commands and environments are in [qualification.yaml](docs/qualification.yaml). These are correctness checks, not evidence of a validation-loss improvement.
+Tests cover block parity, literal MuonH arithmetic, global gradient/activation reduction, immutable capture, deterministic augmentation across worker counts, private optimizer persistence, exact one-step VJPs, pending-credit restart, and capture → offline fitting → online execution. CUDA tests additionally check compilation reuse and a tiny CIFAR pipeline using real images. The current CPU suite has 65 successful tests and seven CUDA-only skips. A100 checks include the capture/offline/online pipeline, two-GPU offline fitting, and repeated cached versus uncached preservation gradients. Commands and environments are in [qualification.yaml](docs/qualification.yaml). These are correctness checks, not evidence of a validation-loss improvement.
 
 A GitHub Actions workflow could not be published with the current OAuth token's scopes. The commands above were run directly; no green CI status is being claimed.
