@@ -10,6 +10,8 @@ class Observations:
         self.active, self.sums, self.handles = False, {}, []
         for name, module in model.named_modules():
             if re.fullmatch(pattern, name + '.weight'):
+                for bank, size in [('input', module.weight.shape[1]), ('adjoint', module.weight.shape[0])]:
+                    self.sums[(name + '.weight', bank)] = [torch.zeros(size, device=module.weight.device), torch.zeros((), device=module.weight.device)]
                 self.handles.append(module.register_forward_hook(self.collect(name + '.weight')))
 
     def collect(self, name):
@@ -25,17 +27,16 @@ class Observations:
         key = (name, bank)
         squares = values.float().square().sum(dim=tuple(range(values.ndim - 1)))
         count = math.prod(values.shape[:-1])
-        if key not in self.sums:
-            self.sums[key] = [squares, count]
-        else:
-            self.sums[key][0].add_(squares)
-            self.sums[key][1] += count
+        self.sums[key][0].add_(squares)
+        self.sums[key][1].add_(count)
         # Backward hooks must return None, not replace the task gradient.
 
     def finalize(self, world_size):
+        if not self.active:
+            return {}
         result = {}
         for (name, bank), (squares, count) in self.sums.items():
-            count_tensor = squares.new_tensor(float(count))
+            count_tensor = count
             if world_size > 1:
                 dist.all_reduce(squares)
                 dist.all_reduce(count_tensor)
@@ -57,7 +58,9 @@ def setup(pattern):
 def begin(every):
     def hook(config, state):
         observations = state.extras['observations']
-        observations.sums = {}
+        for squares, count in observations.sums.values():
+            squares.zero_()
+            count.zero_()
         observations.active = state.step % every == 0
     return hook
 
