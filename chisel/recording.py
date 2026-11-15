@@ -46,6 +46,7 @@ def open_run():
                 # A rejected resume must leave the original run provenance intact.
                 root = root / 'resume_attempts' / str(time.time_ns())
                 root.mkdir(parents=True, exist_ok=False)
+                recipe = root / 'recipe.yaml'
             (root / 'recipe.yaml').write_text(yaml.safe_dump(config, sort_keys=False))
             if not recipe.exists():
                 raise RuntimeError('resolved recipe was not written')
