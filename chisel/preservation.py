@@ -20,6 +20,18 @@ def group_norm_change(snapshot, effective):
     return torch.stack(changes).mean()
 
 
+def effective_norm_change(snapshot, effective):
+    """Fractional Frobenius-norm change over all editable effective matrices."""
+    norm, change = next(iter(effective.values())).new_zeros(2)
+    for name, after in effective.items():
+        before = snapshot[name]['raw'] + snapshot[name]['consolidated']
+        delta = after - before
+        norm = norm + before.square().sum()
+        change = change + (2 * before * delta + delta.square()).sum()
+    relative = change / norm.clamp_min(1e-30)
+    return relative / ((1 + relative).clamp_min(0).sqrt() + 1)
+
+
 def prediction_terms(student, teacher, top_k=100, margin_fraction=.5, ranking_power=2):
     """No GPT approximation: compare actual predictions on the same examples."""
     if ranking_power not in (1, 2):
