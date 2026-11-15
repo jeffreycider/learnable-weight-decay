@@ -111,7 +111,7 @@ def evaluate(every):
                               rank_changed_positions=0, greedy_changed_positions=0, evaluated_positions=0)
                 for entry in entries:
                     model, base, snapshot, directions, rates, batch, _ = state.extras['replay'].load(entry)
-                    probes, _ = state.extras['private_probes'].load(entry['sha256'], snapshot)
+                    probes, _ = state.extras['private_probes'].load(entry['sha256'], snapshot, base)
                     _, effective, _ = action(state.extras['forward'], probes, snapshot, directions, rates,
                                              config['radius_floor'], advance_optimizer=False,
                                              proposer=state.extras.get('proposal_forward'))

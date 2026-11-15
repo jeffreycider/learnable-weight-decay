@@ -60,3 +60,19 @@ staged_recording_qualification:
     observed_warm_step_seconds: [5.664, 5.398, 5.652]
     limitation: recording throughput, not an isolated optimizer benchmark
     replication_verification: source hash checked during copy; readback verified by uploader and dataset reader
+
+current_stack_qualification:
+  cpu_successful: 80
+  cuda_skipped: 7
+  basis: 79-test full suite plus the new fitted-probe reload test
+  additional_checks:
+  - staged copying preserves all original paths and verifies shared bytes before reclaiming local space
+  - paired attention probes represent an affine compensated edit in double precision
+  - paired probes and their optimizer remain checkpoint-private and trainable
+  - curriculum coefficients are determined only by the declared step schedule
+  gpu_execution:
+  - FineWeb curriculum performs nonzero edits and backpropagates through 16384 token predictions
+  - separate paired-probe curriculum reproduces zero-edit predictions exactly at initialization
+  limitations:
+  - primitive or execution checks do not establish a converged preservation-constrained fit
+  - trajectory queues and offline fitting are still running
