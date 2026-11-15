@@ -4,8 +4,8 @@ import torch
 from torch import Tensor, nn
 import torch.nn.functional as F
 
-# Track-3 rules fix the architecture; every class below is verbatim from
-# train_gpt_simple.py and must not drift from the anchor.
+# Defaults preserve the pinned Track-3 architecture. Optional arguments support
+# explicitly configured CIFAR and Chisel models; forwards retain NanoGPT blocks.
 
 
 class RMSNorm(nn.Module):
@@ -43,8 +43,12 @@ class Rotary(nn.Module):
 
 
 class CausalSelfAttention(nn.Module):
-    def __init__(self, dim: int, head_dim: int = 128) -> None:
+    def __init__(self, dim: int, head_dim: int = 128, *, causal=True,
+                 attention_scale=0.12, learned_qk_scale=False) -> None:
         super().__init__()
+        if dim % head_dim or head_dim % 4:
+            raise ValueError("width must divide into heads; RoPE needs head_dim divisible by four")
+        self.causal, self.attention_scale = causal, attention_scale
         self.num_heads = dim // head_dim
         self.head_dim = head_dim
         hdim = self.num_heads * self.head_dim
@@ -53,6 +57,7 @@ class CausalSelfAttention(nn.Module):
         self.v = Linear(dim, hdim)
         self.proj = Linear(hdim, dim)
         self.rotary = Rotary(head_dim)
+        self.log_scale = nn.Parameter(torch.zeros(self.num_heads)) if learned_qk_scale else None
 
     def forward(self, x: Tensor) -> Tensor:
         B, T = x.size(0), x.size(1)
@@ -61,17 +66,19 @@ class CausalSelfAttention(nn.Module):
         v = self.v(x).view(B, T, self.num_heads, self.head_dim)
         q, k = F.rms_norm(q, (q.size(-1),)), F.rms_norm(k, (k.size(-1),))
         q, k = self.rotary(q), self.rotary(k)
+        if self.log_scale is not None:
+            q = q * self.log_scale.exp()[None, None, :, None]
         y = F.scaled_dot_product_attention(q.transpose(1, 2), k.transpose(1, 2),
-                                           v.transpose(1, 2), scale=0.12, is_causal=True).transpose(1, 2)
+                                           v.transpose(1, 2), scale=self.attention_scale, is_causal=self.causal).transpose(1, 2)
         y = y.contiguous().view(B, T, self.num_heads * self.head_dim)
         y = self.proj(y)
         return y
 
 
 class MLP(nn.Module):
-    def __init__(self, dim: int) -> None:
+    def __init__(self, dim: int, expansion: int = 4) -> None:
         super().__init__()
-        hdim = 4 * dim
+        hdim = int(expansion * dim)
         self.fc = Linear(dim, hdim)
         self.proj = Linear(hdim, dim)
 
@@ -83,10 +90,10 @@ class MLP(nn.Module):
 
 
 class Block(nn.Module):
-    def __init__(self, dim: int) -> None:
+    def __init__(self, dim: int, *, expansion=4, **attention) -> None:
         super().__init__()
-        self.attn = CausalSelfAttention(dim)
-        self.mlp = MLP(dim)
+        self.attn = CausalSelfAttention(dim, **attention)
+        self.mlp = MLP(dim, expansion)
         self.norm1 = RMSNorm(dim)
         self.norm2 = RMSNorm(dim)
 
@@ -97,20 +104,22 @@ class Block(nn.Module):
 
 
 class GPT(nn.Module):
-    def __init__(self, vocab_size: int, num_layers: int, model_dim: int) -> None:
+    def __init__(self, vocab_size: int, num_layers: int, model_dim: int, **block_args) -> None:
         super().__init__()
         self.embed = nn.Embedding(vocab_size, model_dim).bfloat16()
-        self.blocks = nn.ModuleList([Block(model_dim) for _ in range(num_layers)])
+        self.blocks = nn.ModuleList([Block(model_dim, **block_args) for _ in range(num_layers)])
         self.proj = Linear(model_dim, vocab_size)
         self.norm1 = RMSNorm(model_dim)
         self.norm2 = RMSNorm(model_dim)
 
-    def forward(self, inputs: Tensor, targets: Tensor) -> Tensor:
+    def forward(self, inputs: Tensor, targets: Tensor | None = None) -> Tensor:
         x = self.norm1(self.embed(inputs))
         for block in self.blocks:
             x = block(x)
         logits = self.proj(self.norm2(x)).float()
         logits = 15 * logits * (logits.square() + 15**2).rsqrt()
+        if targets is None:
+            return logits
         return F.cross_entropy(logits.view(targets.numel(), -1), targets.view(-1), reduction="sum")
 
 
