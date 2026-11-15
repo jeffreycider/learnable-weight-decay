@@ -86,3 +86,16 @@ def test_current_batch_replay_cache_reuses_only_immutable_inputs(tmp_path):
     torch.testing.assert_close(first['inputs'],expected)
     other=json.loads((tmp_path/'source/trajectory/000000/state.ready.json').read_text());replay.load(other)
     assert len(replay.batches)==1
+
+
+def test_cpu_replay_does_not_mutate_resident_checkpoint(tmp_path):
+    from chisel.offline_data import Replay
+    from chisel.checkpoint_io import CheckpointReader
+    source=source_config(tmp_path);run(source)
+    receipt=sorted((tmp_path/'source/trajectory').rglob('state.ready.json'))[2]
+    entry=json.loads(receipt.read_text());reader=CheckpointReader(cache_bytes=1<<28)
+    replay=Replay(torch.device('cpu'),reader=reader,phase='current')
+    first=replay.load(entry);second=replay.load(entry)
+    for name in first[2]:
+        for bank in ['raw','momentum','proposal']:
+            torch.testing.assert_close(first[2][name][bank],second[2][name][bank],rtol=0,atol=0)

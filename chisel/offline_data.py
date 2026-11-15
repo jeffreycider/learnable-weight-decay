@@ -61,7 +61,7 @@ class Replay:
 
     def load(self, entry, record=None, batch_step=None):
         record = self.reader.read(entry) if record is None else record
-        record = map_tensors(record, lambda value: value.to(self.device, non_blocking=True))
+        record = map_tensors(record, lambda value: value.to(self.device, non_blocking=True, copy=True))
         if record['schema'] not in ('chisel-muonh-transition-v1', 'chisel-muonh-transition-v2'):
             raise ValueError('unsupported transition schema')
         verify_sources(record['source_hashes'], self.compatibility)
