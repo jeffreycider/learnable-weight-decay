@@ -15,6 +15,19 @@ from chisel.training import autocast
 from chisel.distributed_offline import owned, finish
 
 
+def initialize_shared_weights(path, sha256):
+    """Start a new fitting stage from explicit shared weights, with fresh private probes."""
+    def hook(config, state):
+        from chisel.storage import sha256 as digest
+        if config.get('resume'):
+            raise ValueError('choose either shared initialization or exact resume')
+        if digest(path) != sha256:
+            raise ValueError('shared initialization checkpoint SHA256 mismatch')
+        saved = torch.load(path, map_location='cpu', weights_only=False)
+        state.model.load_state_dict(saved['model'], strict=True)
+    return hook
+
+
 class ProbeStore:
     def __init__(self, root, config, device):
         self.root, self.config, self.device = Path(root), config, device
