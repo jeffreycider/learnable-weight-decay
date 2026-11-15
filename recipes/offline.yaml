@@ -91,3 +91,7 @@ validation_data:
     nanogpt: 1
   seed: 610002
 compile_gpt_loss: true
+checkpoint_io:
+  _target_: chisel.checkpoint_io.CheckpointReader
+  prefetch: true
+  pin_memory: false

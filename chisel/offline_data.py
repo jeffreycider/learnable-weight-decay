@@ -6,6 +6,7 @@ import yaml
 from chisel.harness import RunState, build
 from chisel.training import optimizers
 from chisel.transfer import observe
+from chisel.checkpoint_io import CheckpointReader, map_tensors
 
 
 class Catalog:
@@ -48,21 +49,13 @@ class Catalog:
 
 
 class Replay:
-    def __init__(self, device):
-        self.device, self.models, self.streams, self.verified = device, {}, {}, set()
+    def __init__(self, device, reader=None):
+        self.device, self.models, self.streams = device, {}, {}
+        self.reader = reader or CheckpointReader()
 
-    def load(self, entry):
-        path = Path(entry['path'])
-        signature = (str(path), path.stat().st_size, path.stat().st_mtime_ns, entry['sha256'])
-        if signature not in self.verified:
-            digest = hashlib.sha256()
-            with path.open('rb') as stream:
-                for chunk in iter(lambda: stream.read(8 << 20), b''):
-                    digest.update(chunk)
-            if digest.hexdigest() != entry['sha256']:
-                raise ValueError('offline checkpoint SHA256 mismatch')
-            self.verified.add(signature)
-        record = torch.load(path, map_location=self.device, weights_only=False)
+    def load(self, entry, record=None):
+        record = self.reader.read(entry) if record is None else record
+        record = map_tensors(record, lambda value: value.to(self.device, non_blocking=True))
         if record['schema'] not in ('chisel-muonh-transition-v1', 'chisel-muonh-transition-v2'):
             raise ValueError('unsupported transition schema')
         for source, digest in record['source_hashes'].items():
