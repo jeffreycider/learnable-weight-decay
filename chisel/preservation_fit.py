@@ -21,6 +21,15 @@ def sampled_inputs(batch, config):
     return inputs.index_select(0, indices)
 
 
+def ranking_objective(values, config):
+    reduction = config.get('ranking_reduction', 'mean')
+    if reduction == 'mean':
+        return values.mean()
+    if reduction == 'microbatch_max':
+        return values.max()
+    raise ValueError(f'unknown ranking reduction: {reduction}')
+
+
 def preservation_gradient(model, original, edited, effective, batch, config, state, dual_value):
     inputs = sampled_inputs(batch, config)
     microbatch = config['microbatch_size']
@@ -47,15 +56,16 @@ def preservation_gradient(model, original, edited, effective, batch, config, sta
                 state.extras['training_forwards'] = state.extras.get('training_forwards', 0) + 1
             student = forward(model, edited, examples)
         terms = prediction_terms(student, teacher, loss_config['top_k'], loss_config['margin_fraction'], loss_config.get('ranking_power', 2))
+        ranking = ranking_objective(terms['ranking'], loss_config)
         loss = weight * (loss_config['logit_mse_weight'] * terms['mse'].mean()
                         + dual_value * terms['kl'].mean()
-                        + loss_config['ranking_weight'] * terms['ranking'].mean())
+                        + loss_config['ranking_weight'] * ranking)
         cotangents = torch.autograd.grad(loss, tuple(effective.values()))
         for name, gradient in zip(effective, cotangents):
             gradients[name].add_(gradient.detach())
         metrics['kl'] += weight * terms['kl'].detach().mean().item()
         metrics['logit_mse'] += weight * terms['mse'].detach().mean().item()
-        metrics['ranking_loss'] += weight * terms['ranking'].detach().mean().item()
+        metrics['ranking_loss'] += weight * ranking.detach().item()
         metrics['maximum_kl'] = max(metrics['maximum_kl'], terms['kl'].detach().max().item())
         changes = ranking_changes(student.detach(), teacher, loss_config['top_k'])
         metrics['rank_changed_positions'] += changes['rank_changed'].item()
