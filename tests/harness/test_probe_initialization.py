@@ -33,3 +33,19 @@ def test_initialization_preserves_rng_and_nonzero_dormant_maps():
     attention_pairs(probes,snapshot,4,13)
     assert torch.equal(rng,torch.get_rng_state())
     assert all(p.norm()>0 for bank in (probes.write_left,probes.write_right) for p in bank)
+
+
+def test_loading_fitted_probes_does_not_reapply_initialization(tmp_path):
+    from chisel.offline import ProbeStore
+    names=['blocks.0.attn.v.weight','blocks.0.attn.proj.weight']
+    snapshot={name:dict(raw=torch.randn(8,8),consolidated=torch.zeros(8,8)) for name in names}
+    config=dict(seed=11,rank=2,optimizer=dict(_target_='torch.optim.Adam',lr=.01),
+        initialize=dict(name='chisel.probe_initialization.attention_pairs',kwargs=dict(head_dim=4)))
+    store=ProbeStore(tmp_path,config,'cpu');identity='a'*64
+    probes,optimizer=store.load(identity,snapshot)
+    with torch.no_grad():
+        probes.write_left[0].add_(.1)
+    store.save(identity,0,probes,optimizer)
+    restored,_=store.load(identity,snapshot)
+    for actual,expected in zip(restored.parameters(),probes.parameters()):
+        torch.testing.assert_close(actual,expected,rtol=0,atol=0)
