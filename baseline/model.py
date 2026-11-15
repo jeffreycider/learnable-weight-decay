@@ -76,24 +76,31 @@ class CausalSelfAttention(nn.Module):
 
 
 class MLP(nn.Module):
-    def __init__(self, dim: int, expansion: int = 4) -> None:
+    def __init__(self, dim: int, expansion: int = 4, activation_backend="native") -> None:
         super().__init__()
+        if activation_backend not in ("native", "fused_fp32"):
+            raise ValueError("unknown MLP activation backend")
+        self.activation_backend = activation_backend
         hdim = int(expansion * dim)
         self.fc = Linear(dim, hdim)
         self.proj = Linear(hdim, dim)
 
     def forward(self, x: Tensor) -> Tensor:
         x = self.fc(x)
-        x = x.relu().square()
+        if self.activation_backend == "fused_fp32" and x.dtype == torch.float32:
+            from chisel.fused_relu_square import fused_relu_square
+            x = fused_relu_square(x)
+        else:
+            x = x.relu().square()
         x = self.proj(x)
         return x
 
 
 class Block(nn.Module):
-    def __init__(self, dim: int, *, expansion=4, **attention) -> None:
+    def __init__(self, dim: int, *, expansion=4, activation_backend="native", **attention) -> None:
         super().__init__()
         self.attn = CausalSelfAttention(dim, **attention)
-        self.mlp = MLP(dim, expansion)
+        self.mlp = MLP(dim, expansion, activation_backend)
         self.norm1 = RMSNorm(dim)
         self.norm2 = RMSNorm(dim)
 
