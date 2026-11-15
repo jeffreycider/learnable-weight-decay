@@ -48,7 +48,7 @@ def setup():
         state.train_batches = build(config['data'])
         state.backward = backward
         state.extras['replay'] = Replay(state.extras['device'], build(config.get('checkpoint_io', {'_target_': 'chisel.checkpoint_io.CheckpointReader'})))
-        state.extras['loss_forward'] = torch.compile(functional_loss, fullgraph=True, dynamic=False) if config['compile_gpt_loss'] else functional_loss
+        state.extras['loss_forward'] = torch.compile(functional_loss, **config.get('compile_gpt_loss_kwargs', dict(fullgraph=True, dynamic=False))) if config['compile_gpt_loss'] else functional_loss
         store = ProbeStore(Path(config['output_dir']) / 'private', config['private_probes'], state.extras['device'])
         state.extras['private_probes'] = store
         state.extras.setdefault('checkpointables', {})['private_probes'] = store
