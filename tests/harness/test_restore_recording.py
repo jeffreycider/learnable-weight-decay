@@ -30,3 +30,22 @@ def test_import_cache_survives_original_uploader_deletion(tmp_path,monkeypatch):
     restore_recording.restore(dict(source=str(source),destination=str(destination),workers=1))
     original.unlink()
     assert (destination/'rank0'/receipt['file']).read_bytes()==b'checkpoint'
+
+
+def test_restore_finishes_each_checkpoint_before_next_step(tmp_path,monkeypatch):
+    source=tmp_path/'source'
+    for rank in range(2):
+        directory=source/f'rank{rank}';directory.mkdir(parents=True)
+        for step in range(3):
+            path=directory/f'step_{step:06d}.pt.zst';path.write_bytes(b'checkpoint')
+            receipt=dict(file=path.name,bytes=path.stat().st_size,sha256=sha256(path))
+            path.with_suffix('.ready.json').write_text(json.dumps(receipt))
+    copied=[]
+    original_copy=restore_recording.shutil.copyfile
+    def copy(source,destination):
+        copied.append((source.parent.name,source.name))
+        return original_copy(source,destination)
+    monkeypatch.setattr(restore_recording.shutil,'copyfile',copy)
+    monkeypatch.setattr(restore_recording,'client_from_config',lambda config:object())
+    restore_recording.restore(dict(source=str(source),destination=str(tmp_path/'cache'),workers=1,priority_steps=[2]))
+    assert copied==[(f'rank{rank}',f'step_{step:06d}.pt.zst') for step in [2,0,1] for rank in range(2)]
