@@ -9,7 +9,21 @@ import yaml
 from chisel.storage import atomic_json, sha256
 
 
-def copy_record(source, destination, receipt):
+def relocate_verified(original, target, digest):
+    """Keep the original pathname usable while reclaiming its verified local copy."""
+    if original.is_symlink():
+        if original.resolve() != target.resolve():
+            raise ValueError(f'unexpected staging symlink: {original}')
+        return
+    if sha256(target) != digest:
+        raise ValueError(f'shared readback checksum mismatch: {target}')
+    temporary = original.with_suffix(original.suffix + '.relocating')
+    temporary.unlink(missing_ok=True)
+    temporary.symlink_to(target.resolve())
+    temporary.replace(original)
+
+
+def copy_record(source, destination, receipt, relocate=False):
     source, destination, receipt = Path(source), Path(destination), Path(receipt)
     info = json.loads(receipt.read_text())
     original = receipt.parent / info['file']
@@ -19,6 +33,8 @@ def copy_record(source, destination, receipt):
         previous = json.loads(ready.read_text())
         if previous['sha256'] != info['sha256'] or target.stat().st_size != info['bytes']:
             raise ValueError(f'immutable shared-record collision: {target}')
+        if relocate:
+            relocate_verified(original, target, info['sha256'])
         return
     target.parent.mkdir(parents=True, exist_ok=True)
     temporary = target.with_suffix(target.suffix + '.copying')
@@ -36,6 +52,8 @@ def copy_record(source, destination, receipt):
     temporary.replace(target)
     atomic_json(ready, info | dict(path=str(target.resolve()),
                                   copy_verification='source_sha256_during_copy'))
+    if relocate:
+        relocate_verified(original, target, info['sha256'])
 
 
 def copy_metadata(source, destination, seen):
@@ -80,7 +98,8 @@ def mirror(config):
                     json.loads(receipt.read_text())
                 except json.JSONDecodeError:
                     continue  # The producer may still be publishing its receipt.
-                pending[receipt] = pool.submit(copy_record, source, destination, receipt)
+                pending[receipt] = pool.submit(copy_record, source, destination, receipt,
+                                              config.get('relocate_after_copy', False))
             for receipt, future in list(pending.items()):
                 if future.done():
                     future.result()
