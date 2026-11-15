@@ -8,3 +8,7 @@ baseline/data.py:
   current: 52d19a8ad8563d67aa5197175e67d85e3caacb6d1f2befcd6bc9794dbd41626d
   reason: Default architecture arithmetic unchanged; optional activation backend and
     optional data identity checking. Qualified by default-block and replay tests.
+chisel/import_recording.py:
+- captured: 492fc84915e9298302dd49f005457baf52e365fbe73c4f77a4bda847d98c1448
+  current: 473f7bb8bbae57a38c6c7fa6cc7b54789ba1561788b4f055d952a506041d8f8d
+  reason: Import validation now requires ascending rank order; the qualified checkpoint was already imported in that order. No output arithmetic changed.

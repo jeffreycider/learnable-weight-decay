@@ -22,8 +22,10 @@ def preservation_gradient(model, original, edited, effective, batch, config, sta
         examples = inputs[start:start + microbatch]
         weight = len(examples) / len(inputs)
         with autocast(config, state):
-            with torch.no_grad():
-                teacher = forward(model, original, examples)
+            # Match the student's autograd signature so compilation uses the same
+            # floating-point forward. Detach immediately; never backpropagate teacher.
+            reference = original | {name: original[name].detach().requires_grad_() for name in effective}
+            teacher = forward(model, reference, examples).detach()
             student = forward(model, edited, examples)
         terms = prediction_terms(student, teacher, loss_config['top_k'], loss_config['margin_fraction'])
         loss = weight * (loss_config['logit_mse_weight'] * terms['mse'].mean()

@@ -139,3 +139,17 @@ def test_two_gpu_offline_private_ownership_and_shared_updates(tmp_path):
     for rank in range(2):
         actual=torch.load(tmp_path/f'distributed/latest_rank{rank}.pt',map_location='cpu',weights_only=False)
         for name,value in expected.items():torch.testing.assert_close(actual['model'][name],value,rtol=2e-4,atol=3e-6)
+
+
+def test_compiled_identity_preservation_uses_matching_arithmetic():
+    from chisel.preservation_fit import preservation_gradient,logits
+    from chisel.harness import RunState
+    model=CifarGPT(32,2,4,'mean',head_dim=8,causal=False,learned_qk_scale=True,expansion=2).cuda().float()
+    base={n:p.detach().clone() for n,p in model.named_parameters()}
+    effective={n:p.clone().requires_grad_() for n,p in base.items() if n.startswith('blocks.') and p.ndim==2}
+    state=RunState(extras=dict(device=torch.device('cuda'),logits_forward=torch.compile(logits,fullgraph=True,dynamic=False)))
+    config=dict(runtime=dict(autocast=None),microbatch_size=4,preservation=dict(top_k=10,margin_fraction=.5,logit_mse_weight=100.,ranking_weight=1e6))
+    batch=dict(inputs=torch.randn(8,3,32,32,device='cuda'))
+    gradients,metrics=preservation_gradient(model,base,base|effective,effective,batch,config,state,1e4)
+    assert metrics['kl']==0 and metrics['logit_mse']==0 and metrics['rank_changed_positions']==0,metrics
+    assert all(torch.count_nonzero(g)==0 for g in gradients.values())
