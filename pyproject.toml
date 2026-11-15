@@ -10,7 +10,7 @@ requires-python = ">=3.10"
 dependencies = ["torch>=2.11", "numpy>=1.24", "PyYAML>=6"]
 
 [project.optional-dependencies]
-storage = ["boto3"]
+storage = ["boto3", "zstandard"]
 cifar = ["torchvision", "Pillow", "PyYAML>=6"]
 test = ["pytest>=8", "boto3"]
 logging = ["wandb"]
