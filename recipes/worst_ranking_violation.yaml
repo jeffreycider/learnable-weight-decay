@@ -1,0 +1,6 @@
+extends: offline.yaml
+preservation:
+  ranking_reduction: microbatch_max
+# Each microbatch contributes its largest per-position ranking penalty, weighted
+# by its share of examples. MSE and KL still use means. This is not a global max;
+# microbatch_size is part of the objective and must be recorded.

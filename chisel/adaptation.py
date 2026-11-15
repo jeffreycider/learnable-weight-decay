@@ -1,7 +1,7 @@
 """Fit only checkpoint-private probes on support examples; audit disjoint queries."""
 from copy import deepcopy
 import torch
-from chisel.harness import RunState
+from chisel.harness import RunState, build
 from chisel.cifar import seed_at
 from chisel.transfer import action, penalty
 from chisel.preservation import group_norm_change
@@ -25,8 +25,18 @@ def fit(config, state, identity, model, base, snapshot, directions, rates, batch
     settings = config['validation_adaptation']
     if settings['steps'] <= 0:
         raise ValueError('adaptation steps must be positive')
-    support, query = split_batch(batch, settings['support_examples'], settings['query_examples'],
-        seed_at(settings['seed'], int(identity[:16], 16)))
+    seed = seed_at(settings['seed'], int(identity[:16], 16))
+    if settings.get('query_data'):
+        if not 0 < settings['support_examples'] <= len(batch['inputs']):
+            raise ValueError('support count exceeds the recorded batch')
+        indices = torch.randperm(len(batch['inputs']), generator=torch.Generator().manual_seed(seed))[:settings['support_examples']]
+        support = {key: value.index_select(0, indices.to(value.device)) for key, value in batch.items()}
+        stream = build(settings['query_data'], device=state.extras['device'], rank=0, world_size=1)
+        query = stream.replay(0) if hasattr(stream, 'replay') else next(stream)
+        if len(query['inputs']) != settings['query_examples']:
+            raise ValueError('query source returned the wrong number of examples')
+    else:
+        support, query = split_batch(batch, settings['support_examples'], settings['query_examples'], seed)
     measurement = config | dict(preservation_examples=None, teacher_cache_bytes=0,
                                 preservation_cache_key=None)
     local = RunState(model=state.model, extras=dict(state.extras))
@@ -60,5 +70,6 @@ def fit(config, state, identity, model, base, snapshot, directions, rates, batch
         trace.append(dict(private_updates=settings['steps'],
             norm_reduction_pct=-100 * group_norm_change(snapshot, effective).item(), **final))
     return query, measurement, dict(adaptation_steps=settings['steps'],
+        adaptation_query_source='injected_data' if settings.get('query_data') else 'recorded_batch_partition',
         adaptation_support_examples=len(support['inputs']), adaptation_query_examples=len(query['inputs']),
         adaptation_fitting_model_forwards=local.extras['training_forwards'], adaptation_trace=trace)

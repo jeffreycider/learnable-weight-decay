@@ -3,7 +3,7 @@ import torch
 
 
 @torch.no_grad()
-def attention_pairs(probes, snapshot, head_dim, seed, reference=None):
+def attention_pairs(probes, snapshot, head_dim, seed, reference=None, actor=None):
     """Initialize paired write maps; every map remains trainable after initialization.
 
     For y=O V x, the accessible directions include dV=u(u^T V) and
@@ -50,3 +50,15 @@ def attention_pairs(probes, snapshot, head_dim, seed, reference=None):
             # Keep random columns on dormant zero-output branches so they can learn.
             norms = initial.norm(dim=0, keepdim=True)
             parameter.copy_(torch.where(norms > 1e-12, initial / norms.clamp_min(1e-12), parameter))
+
+
+@torch.no_grad()
+def zero_write_left(probes, snapshot, seed, reference=None, actor=None):
+    """Identity initial edit with trainable left factors for an already trained backbone."""
+    if actor is None:
+        raise ValueError('zero-write initialization requires the shared Chisel backbone')
+    codes = actor(probes.tokens(snapshot))
+    if not (codes[:, 0] + codes[:, 1]).abs().any():
+        raise ValueError('zero write maps and zero effective output codes would prevent learning')
+    for parameter in probes.write_left:
+        parameter.zero_()

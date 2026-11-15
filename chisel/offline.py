@@ -28,18 +28,31 @@ def initialize_shared_weights(path, sha256):
     return hook
 
 
+def initialize_fitted_probes(path, sha256):
+    """Begin an explicit new fitting stage from saved private weights and Adam state."""
+    def hook(config, state):
+        from chisel.storage import sha256 as digest
+        if config.get('resume'):
+            raise ValueError('choose either staged initialization or exact resume')
+        if digest(path) != sha256:
+            raise ValueError('private initialization checkpoint SHA256 mismatch')
+        saved = torch.load(path, map_location='cpu', weights_only=False)
+        state.extras['private_probes'].load_state_dict(saved['extras']['private_probes'])
+    return hook
+
+
 class ProbeStore:
     def __init__(self, root, config, device):
         self.root, self.config, self.device = Path(root), config, device
         self.latest = {}
 
-    def load(self, identity, snapshot, reference=None):
+    def load(self, identity, snapshot, reference=None, actor=None):
         with torch.random.fork_rng(devices=[]):
             torch.random.default_generator.manual_seed(seed_at(self.config['seed'], int(identity[:16], 16)))
             probes = PrivateProbes({name: item['raw'].shape for name, item in snapshot.items()}, self.config['rank']).to(self.device)
         if identity not in self.latest and self.config.get('initialize'):
             rule = self.config['initialize']
-            locate(rule['name'])(probes, snapshot, reference=reference,
+            locate(rule['name'])(probes, snapshot, reference=reference, actor=actor,
                 seed=seed_at(self.config['seed'], int(identity[:16], 16)), **rule['kwargs'])
         optimizer = build(self.config['optimizer'], params=probes.parameters())
         if identity in self.latest:
@@ -117,7 +130,7 @@ def backward(config, state):
     for entry, record in replay.reader.iterate(local_entries):
         batch_step = training_batch_step(config, entry['sha256'], state.step, record['step'])
         model, base, snapshot, directions, rates, batch, source = replay.load(entry, record, batch_step=batch_step)
-        probes, private_optimizer = store.load(entry['sha256'], snapshot, base)
+        probes, private_optimizer = store.load(entry['sha256'], snapshot, base, actor=state.model)
         if 'private_lr' in curriculum:
             for group in private_optimizer.param_groups:
                 group['lr'] = curriculum['private_lr']

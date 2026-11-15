@@ -1,0 +1,7 @@
+extends: offline.yaml
+# Requires shared Chisel weights with nonzero effective output codes, e.g. a
+# hash-pinned initialize_shared_weights setup hook. A zero-output backbone errors.
+private_probes:
+  initialize:
+    name: chisel.probe_initialization.zero_write_left
+    kwargs: {}

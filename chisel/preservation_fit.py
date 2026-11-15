@@ -21,6 +21,15 @@ def sampled_inputs(batch, config):
     return inputs.index_select(0, indices)
 
 
+def ranking_objective(values, config):
+    reduction = config.get('ranking_reduction', 'mean')
+    if reduction == 'mean':
+        return values.mean()
+    if reduction == 'microbatch_max':
+        return values.max()
+    raise ValueError(f'unknown ranking reduction: {reduction}')
+
+
 def preservation_gradient(model, original, edited, effective, batch, config, state, dual_value):
     inputs = sampled_inputs(batch, config)
     microbatch = config['microbatch_size']
@@ -47,15 +56,16 @@ def preservation_gradient(model, original, edited, effective, batch, config, sta
                 state.extras['training_forwards'] = state.extras.get('training_forwards', 0) + 1
             student = forward(model, edited, examples)
         terms = prediction_terms(student, teacher, loss_config['top_k'], loss_config['margin_fraction'], loss_config.get('ranking_power', 2))
+        ranking = ranking_objective(terms['ranking'], loss_config)
         loss = weight * (loss_config['logit_mse_weight'] * terms['mse'].mean()
                         + dual_value * terms['kl'].mean()
-                        + loss_config['ranking_weight'] * terms['ranking'].mean())
+                        + loss_config['ranking_weight'] * ranking)
         cotangents = torch.autograd.grad(loss, tuple(effective.values()))
         for name, gradient in zip(effective, cotangents):
             gradients[name].add_(gradient.detach())
         metrics['kl'] += weight * terms['kl'].detach().mean().item()
         metrics['logit_mse'] += weight * terms['mse'].detach().mean().item()
-        metrics['ranking_loss'] += weight * terms['ranking'].detach().mean().item()
+        metrics['ranking_loss'] += weight * ranking.detach().item()
         metrics['maximum_kl'] = max(metrics['maximum_kl'], terms['kl'].detach().max().item())
         changes = ranking_changes(student.detach(), teacher, loss_config['top_k'])
         metrics['rank_changed_positions'] += changes['rank_changed'].item()
@@ -114,13 +124,18 @@ def evaluate(every):
                 checkpoint_results = []
                 for entry in entries:
                     model, base, snapshot, directions, rates, batch, _ = state.extras['replay'].load(entry)
-                    probes, private_optimizer = state.extras['private_probes'].load(entry['sha256'], snapshot, base)
+                    probes, private_optimizer = state.extras['private_probes'].load(entry['sha256'], snapshot, base, actor=state.model)
                     measurement_config = config | config.get('domain_settings', {}).get(entry['domain'], {})
                     adaptation = {}
                     if prefix == 'validation' and config.get('validation_adaptation'):
                         from chisel.adaptation import fit
                         batch, measurement_config, adaptation = fit(measurement_config, state,
                             entry['sha256'], model, base, snapshot, directions, rates, batch, probes, private_optimizer)
+                        from chisel.recording import save_atomic, cpu_copy
+                        from chisel.storage import sha256
+                        fitted = Path(config['output_dir']) / 'audits' / f'private_{state.step + 1:08d}' / f"{entry['sha256']}.pt"
+                        save_atomic(cpu_copy(dict(probes=probes.state_dict(), optimizer=private_optimizer.state_dict())), fitted)
+                        adaptation.update(adaptation_probes_file=str(fitted.resolve()), adaptation_probes_sha256=sha256(fitted))
                     _, effective, _ = action(state.extras['forward'], probes, snapshot, directions, rates,
                                              config['radius_floor'], advance_optimizer=False,
                                              proposer=state.extras.get('proposal_forward'))
