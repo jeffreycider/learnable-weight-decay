@@ -27,7 +27,7 @@ class TrajectoryWriter:
         with path.open('rb') as stream:
             for block in iter(lambda: stream.read(8 << 20), b''):
                 digest.update(block)
-        receipt = dict(path=str(path.resolve()), bytes=path.stat().st_size, sha256=digest.hexdigest(), step=step)
+        receipt = dict(path=str(path.resolve()), file=path.name, bytes=path.stat().st_size, sha256=digest.hexdigest(), step=step)
         path.with_suffix('.ready.json').write_text(json.dumps(receipt))
 
     def close(self):
