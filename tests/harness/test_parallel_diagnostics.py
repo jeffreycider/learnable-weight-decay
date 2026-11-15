@@ -58,6 +58,7 @@ def worker(rank, path, backend):
             torch.testing.assert_close(p, ref, rtol=0, atol=0)
         assert state.extras['train_loss'] < value.item()
         single.edited_weights = original
+        dist.barrier()
     finally:
         dist.destroy_process_group()
 
@@ -116,6 +117,7 @@ def cohort_worker(rank, path, backend):
             ref=p.detach().clone(); dist.broadcast(ref,0)
             torch.testing.assert_close(p,ref,rtol=0,atol=0)
         assert state.extras['train_loss']<value.item()
+        dist.barrier()
     finally: dist.destroy_process_group()
 
 
