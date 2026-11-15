@@ -47,7 +47,7 @@ def setup():
             raise ValueError('offline private-state writes currently require one process per run')
         state.train_batches = build(config['data'])
         state.backward = backward
-        state.extras['replay'] = Replay(state.extras['device'])
+        state.extras['replay'] = Replay(state.extras['device'], build(config.get('checkpoint_io', {'_target_': 'chisel.checkpoint_io.CheckpointReader'})))
         state.extras['loss_forward'] = torch.compile(functional_loss, fullgraph=True, dynamic=False) if config['compile_gpt_loss'] else functional_loss
         store = ProbeStore(Path(config['output_dir']) / 'private', config['private_probes'], state.extras['device'])
         state.extras['private_probes'] = store
@@ -84,8 +84,9 @@ def backward(config, state):
     entries = next(state.train_batches)
     metrics = dict(next_batch_loss=0., consolidated_penalty=0.)
     store = state.extras['private_probes']
-    for entry in entries:
-        model, base, snapshot, directions, rates, batch, source = state.extras['replay'].load(entry)
+    replay = state.extras['replay']
+    for entry, record in replay.reader.iterate(entries):
+        model, base, snapshot, directions, rates, batch, source = replay.load(entry, record)
         probes, private_optimizer = store.load(entry['sha256'], snapshot)
         _, effective, consolidated = action(state.extras['forward'], probes, snapshot, directions, rates, config['radius_floor'])
         parameters = base | effective
