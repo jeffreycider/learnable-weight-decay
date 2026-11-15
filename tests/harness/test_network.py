@@ -10,8 +10,8 @@ def example():
 def test_zero_head_is_identity_and_trainable():
     actor,probes,snapshot=example()
     edits=propose(actor,probes,snapshot)
-    assert all(torch.count_nonzero(x)==0 for x in edits.values())
-    sum((edit*snapshot[name]['raw']).sum() for name,edit in edits.items()).backward()
+    assert all(torch.count_nonzero(x)==0 for item in edits.values() for x in item.values())
+    sum((edit['raw']*snapshot[name]['raw']).sum() for name,edit in edits.items()).backward()
     assert actor.proj.weight.grad.norm()>0
 
 def test_global_context_and_learnable_private_maps():
@@ -19,8 +19,8 @@ def test_global_context_and_learnable_private_maps():
     with torch.no_grad():actor.proj.weight.normal_(std=.1)
     edits=propose(actor,probes,snapshot)
     first=next(iter(edits));last=list(edits)[-1]
-    loss=sum(edit.square().sum() for edit in edits.values());loss.backward()
+    loss=sum(value.square().sum() for edit in edits.values() for value in edit.values());loss.backward()
     assert all(p.grad is not None and p.grad.norm()>0 for p in probes.parameters())
     snapshot[last]['raw']=torch.randn_like(snapshot[last]['raw'])*5
     changed=propose(actor,probes,snapshot)[first]
-    assert not torch.allclose(changed,edits[first])
+    assert not torch.allclose(changed['raw'],edits[first]['raw'])

@@ -47,7 +47,8 @@ class PrivateProbes(nn.Module):
         for index, name in enumerate(self.names):
             left, right = self.write_left[index], self.write_right[index]
             scale = snapshot[name]['raw'].detach().square().mean().sqrt()
-            result[name] = (left @ codes[index] @ right.T) * scale
+            result[name] = {bank: (left @ codes[index, side] @ right.T) * scale
+                            for side, bank in enumerate(('raw', 'consolidated'))}
         return result
 
 
@@ -58,7 +59,7 @@ class Chisel(nn.Module):
         self.embed = nn.Linear(5 * rank * rank + 2 * rank + 9, width)
         self.blocks = nn.ModuleList([Block(width, **block_args) for _ in range(depth)])
         self.norm = RMSNorm(width)
-        self.proj = nn.Linear(width, rank * rank)
+        self.proj = nn.Linear(width, 2 * rank * rank)
         nn.init.zeros_(self.proj.weight)
         nn.init.zeros_(self.proj.bias)
 
@@ -66,7 +67,7 @@ class Chisel(nn.Module):
         hidden = self.embed(tokens.unsqueeze(0))
         for block in self.blocks:
             hidden = block(hidden)
-        return self.proj(self.norm(hidden))[0].reshape(-1, self.rank, self.rank)
+        return self.proj(self.norm(hidden))[0].reshape(-1, 2, self.rank, self.rank)
 
 
 def propose(actor, probes, snapshot):
