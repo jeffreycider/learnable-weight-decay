@@ -153,3 +153,26 @@ def test_compiled_identity_preservation_uses_matching_arithmetic():
     gradients,metrics=preservation_gradient(model,base,base|effective,effective,batch,config,state,1e4)
     assert metrics['kl']==0 and metrics['logit_mse']==0 and metrics['rank_changed_positions']==0,metrics
     assert all(torch.count_nonzero(g)==0 for g in gradients.values())
+
+
+def test_compiled_cached_teacher_matches_repeated_uncached_gradients():
+    from chisel.preservation_fit import preservation_gradient,logits
+    from chisel.teacher_cache import TeacherCache
+    from chisel.harness import RunState
+    model=CifarGPT(32,2,4,'mean',head_dim=8,causal=False,learned_qk_scale=True,expansion=2).cuda().float()
+    base={n:p.detach().clone() for n,p in model.named_parameters()}
+    edited={n:p+.001*torch.randn_like(p) for n,p in base.items() if n.startswith('blocks.') and p.ndim==2}
+    state=RunState(extras=dict(device=torch.device('cuda'),logits_forward=torch.compile(logits,fullgraph=True,dynamic=False)))
+    config=dict(runtime=dict(autocast=None),microbatch_size=4,teacher_cache_bytes=1<<20,
+        preservation_cache_key=('fixed_checkpoint',0),preservation=dict(top_k=10,margin_fraction=.5,logit_mse_weight=100.,ranking_weight=1e3))
+    batch=dict(inputs=torch.randn(8,3,32,32,device='cuda'))
+    def measure():
+        effective={n:v.detach().clone().requires_grad_() for n,v in edited.items()}
+        return preservation_gradient(model,base,base|effective,effective,batch,config,state,1e4)
+    reference,metrics=measure()
+    for caching in [True,False]:
+        if not caching:state.extras['teacher_cache']=TeacherCache(0)
+        gradient,repeated=measure()
+        assert metrics==repeated
+        for name in reference:
+            torch.testing.assert_close(gradient[name],reference[name],rtol=2e-5,atol=2e-6)

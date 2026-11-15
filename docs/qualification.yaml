@@ -20,3 +20,27 @@ performance:
   scope: MLP forward, backward, and Adam update only
   finding: no meaningful improvement over native compilation; defaults unchanged
   does_not_establish: end-to-end offline Chisel speedup or training improvement
+
+corrected_objective_qualification:
+  source_revision: b0a5e06
+  cpu_successful: 65
+  cpu_cuda_skipped: 7
+  cpu_seconds: 13.09
+  compiled_teacher_cache_a100:
+    successful: 1
+    seconds: 7.52
+    command: python -m pytest -q tests/harness/test_gpu.py::test_compiled_cached_teacher_matches_repeated_uncached_gradients
+  full_fineweb_cache_check:
+    token_positions: 16384
+    cached_and_recomputed_metrics: identical
+    maximum_gradient_absolute_difference_cached: 2.98e-8
+    maximum_gradient_absolute_difference_recomputed: 2.61e-8
+    scope: repeated gradients at the same fixed parameters; not trajectory equality
+  cache_timing_pilot:
+    updates: 20
+    cached_gpt_forward_calls: 648
+    uncached_gpt_forward_calls: 1280
+    cached_median_warm_step_seconds: 12.03
+    uncached_median_warm_step_seconds: 11.98
+    limitation: different nodes and competing recording jobs; not an isolated speed comparison
+    decision: keep teacher caching opt-in; no demonstrated wall-clock gain
