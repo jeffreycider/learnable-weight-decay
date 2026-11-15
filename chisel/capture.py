@@ -68,6 +68,7 @@ def record(every):
             return
         if 'activation_records' in state.extras:
             samples = state.extras['activation_records'].snapshot(state.extras['rank'], state.extras['world_size'])
+            samples['current'] = state.extras['capture_before']
             samples['gradient_units'] = config['gradient_units']
             samples['adjoint_reduction'] = 'local_batch_mean' if config['gradient_units'] == 'mean' else 'sum'
             state.extras['activation_writer'].submit(state.step, samples)
@@ -86,7 +87,7 @@ def record(every):
                               raw_radii={name: p.detach().norm() for name, p in state.model.named_parameters() if id(p) in selected},
                               current=state.extras['capture_before'],
                               source_hashes={name: digest for name, digest in state.extras['source_hashes'].items()
-                                             if name in ('baseline/model.py', 'baseline/data.py', 'chisel/models.py', 'chisel/muonh.py', 'chisel/cifar.py')},
+                                             if name in ('baseline/model.py', 'baseline/data.py', 'chisel/models.py', 'chisel/muonh.py', 'chisel/cifar.py', 'chisel/data_identity.py', 'chisel/fused_relu_square.py')},
                               has_next_training_step=state.step + 1 < config['train_steps'],
                               weights=state.model.state_dict(),
                               gradients={name: p.grad for name, p in state.model.named_parameters()},

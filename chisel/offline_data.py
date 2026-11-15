@@ -7,6 +7,7 @@ from chisel.harness import RunState, build
 from chisel.training import optimizers
 from chisel.transfer import observe
 from chisel.checkpoint_io import CheckpointReader, map_tensors
+from chisel.source_compatibility import verify_sources
 
 
 class Catalog:
@@ -49,18 +50,17 @@ class Catalog:
 
 
 class Replay:
-    def __init__(self, device, reader=None):
+    def __init__(self, device, reader=None, compatibility=None):
         self.device, self.models, self.streams = device, {}, {}
         self.reader = reader or CheckpointReader()
+        self.compatibility = compatibility
 
     def load(self, entry, record=None):
         record = self.reader.read(entry) if record is None else record
         record = map_tensors(record, lambda value: value.to(self.device, non_blocking=True))
         if record['schema'] not in ('chisel-muonh-transition-v1', 'chisel-muonh-transition-v2'):
             raise ValueError('unsupported transition schema')
-        for source, digest in record['source_hashes'].items():
-            if hashlib.sha256(Path(source).read_bytes()).hexdigest() != digest:
-                raise ValueError(f'captured base implementation differs: {source}')
+        verify_sources(record['source_hashes'], self.compatibility)
         config = record['config']
         key = yaml.safe_dump(config['model'])
         if key not in self.models:

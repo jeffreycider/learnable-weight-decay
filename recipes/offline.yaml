@@ -102,3 +102,4 @@ checkpoint_io:
 compile_gpt_loss_kwargs:
   fullgraph: true
   dynamic: false
+source_compatibility: recipes/source_compatibility.yaml
