@@ -123,3 +123,10 @@ private_steps: 1
 preservation_data:
   policy: uniform_past
   seed: 810001
+domain_settings:
+  cifar:
+    microbatch_size: 64
+    preservation_examples: null
+  nanogpt:
+    microbatch_size: 2
+    preservation_examples: 64

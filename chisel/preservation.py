@@ -20,8 +20,10 @@ def group_norm_change(snapshot, effective):
     return torch.stack(changes).mean()
 
 
-def prediction_terms(student, teacher, top_k=100, margin_fraction=.5):
+def prediction_terms(student, teacher, top_k=100, margin_fraction=.5, ranking_power=2):
     """No GPT approximation: compare actual predictions on the same examples."""
+    if ranking_power not in (1, 2):
+        raise ValueError('ranking_power must select linear or squared hinge')
     student, teacher = student.flatten(0, -2), teacher.detach().flatten(0, -2)
     difference = student - teacher
     centered = difference - difference.mean(-1, keepdim=True)
@@ -37,13 +39,13 @@ def prediction_terms(student, teacher, top_k=100, margin_fraction=.5):
     gaps = values[:, :-1] - values[:, 1:]
     violations = (margin_fraction * gaps - (ordered[:, :-1] - ordered[:, 1:])).clamp_min(0)
     # Exact teacher ties have no ordering constraint.
-    rank_loss = torch.where(gaps > 0, violations.square(), 0).mean(-1)
+    rank_loss = torch.where(gaps > 0, violations.pow(ranking_power), 0).mean(-1)
     if k < teacher.shape[-1]:
         outside = student.scatter(-1, indices, float('-inf')).max(-1).values
         teacher_outside = teacher.scatter(-1, indices, float('-inf')).max(-1).values
         boundary = values[:, -1] - teacher_outside
         violation = (margin_fraction * boundary - (ordered[:, -1] - outside)).clamp_min(0)
-        rank_loss = rank_loss + torch.where(boundary > 0, violation.square(), 0)
+        rank_loss = rank_loss + torch.where(boundary > 0, violation.pow(ranking_power), 0)
     return dict(mse=mse, kl=kl, ranking=rank_loss)
 
 

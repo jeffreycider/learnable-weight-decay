@@ -29,3 +29,13 @@ def test_identity_kl_small_errors_and_tie_aware_rankings():
     torch.testing.assert_close(terms['kl'].mean(),exact,rtol=1e-9,atol=1e-14)
     terms['mse'].mean().backward();assert student.grad.norm()>0
     assert ranking_changes(torch.tensor([[3.,1.,2.,2.5]]),teacher,top_k=3)['rank_changed']==1
+
+
+def test_linear_rank_constraint_retains_gradient_near_a_violation():
+    teacher=torch.tensor([[1.,0.]],dtype=torch.float64)
+    student=torch.tensor([[.499999,0.]],dtype=torch.float64,requires_grad=True)
+    term=prediction_terms(student,teacher,top_k=2,ranking_power=1)['ranking'].sum()
+    gradient=torch.autograd.grad(term,student)[0]
+    torch.testing.assert_close(term,torch.tensor(1e-6,dtype=torch.float64))
+    torch.testing.assert_close(gradient,torch.tensor([[-1.,1.]],dtype=torch.float64))
+    assert prediction_terms(teacher,teacher,top_k=2,ranking_power=1)['ranking']==0
