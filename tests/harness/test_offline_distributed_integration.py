@@ -23,7 +23,7 @@ def test_distributed_offline_matches_single_process(tmp_path):
     manifest=tmp_path/'manifest.yaml'
     manifest.write_text(yaml.safe_dump(dict(states=[dict(path=e['path'],sha256=e['sha256'],domain='text') for e in entries])))
     cfg=resolve('recipes/offline.yaml');cfg.update(train_steps=2,output_dir=str(tmp_path/'single'),microbatch_size=2,validation_data=None,compile_gpt_loss=False)
-    cfg['runtime'].update(device='cpu',autocast=None);cfg['compile']['enabled']=False
+    cfg['runtime'].update(device='cpu',autocast=None);cfg['compile']['enabled']=False;cfg['compile_proposal']=False
     cfg['model'].update(rank=2,width=16,depth=1,head_dim=4,expansion=2)
     cfg['private_probes']['rank']=2;cfg['data'].update(manifest=str(manifest),batch_counts=dict(text=3))
     single=run(cfg)

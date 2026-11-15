@@ -76,7 +76,7 @@ def test_cuda_capture_offline_online_pipeline(tmp_path):
     learned=run(offline)
     assert learned.extras['compile_counts'][1]==learned.extras['compile_counts'][2],learned.extras['compile_counts']
     assert learned.model.proj.weight.norm()>0
-    assert learned.extras['training_forwards']==6
+    assert learned.extras['training_forwards']==12
     online=resolve('recipes/cifar_online.yaml')
     for key in ['train_steps','model','data','microbatch_size']:
         online[key]=source[key]

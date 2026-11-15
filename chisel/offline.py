@@ -3,10 +3,13 @@ from pathlib import Path
 import torch
 from chisel.harness import build, locate
 from chisel.cifar import seed_at
-from chisel.network import PrivateProbes
+from chisel.network import PrivateProbes, propose
 from chisel.offline_data import Replay
 from chisel.recording import save_atomic, cpu_copy
-from chisel.transfer import action, delayed_loss, penalty
+from chisel.transfer import action, penalty
+from chisel.preservation import Dual, group_norm_change
+from chisel.preservation_fit import logits, preservation_gradient, evaluate
+import torch.distributed as dist
 from chisel.training import autocast
 from chisel.distributed_offline import owned, finish
 
@@ -46,11 +49,13 @@ def setup():
     def hook(config, state):
         state.train_batches = build(config['data'])
         state.backward = backward
-        state.extras['replay'] = Replay(state.extras['device'], build(config.get('checkpoint_io', {'_target_': 'chisel.checkpoint_io.CheckpointReader'})), config.get('source_compatibility'))
-        state.extras['loss_forward'] = torch.compile(functional_loss, **config.get('compile_gpt_loss_kwargs', dict(fullgraph=True, dynamic=False))) if config['compile_gpt_loss'] else functional_loss
+        state.extras['replay'] = Replay(state.extras['device'], build(config.get('checkpoint_io', {'_target_': 'chisel.checkpoint_io.CheckpointReader'})), config.get('source_compatibility'), phase='current', parameter_dtype=config['runtime'].get('parameter_dtype'))
+        state.extras['logits_forward'] = torch.compile(logits, **config.get('compile_gpt_loss_kwargs', dict(fullgraph=True, dynamic=False))) if config['compile_gpt_loss'] else logits
+        state.extras['proposal_forward'] = torch.compile(propose, fullgraph=True, dynamic=False) if config.get('compile_proposal') else propose
+        state.extras['dual'] = build(config['preservation']['dual'])
         store = ProbeStore(Path(config['output_dir']) / 'private', config['private_probes'], state.extras['device'])
         state.extras['private_probes'] = store
-        state.extras.setdefault('checkpointables', {})['private_probes'] = store
+        state.extras.setdefault('checkpointables', {}).update(private_probes=store, dual=state.extras['dual'])
     return hook
 
 
@@ -81,62 +86,39 @@ def next_loss_gradient(model, parameters, effective, batch, loss_spec, microbatc
 
 def backward(config, state):
     entries = next(state.train_batches)
-    metrics = dict(next_batch_loss=0., consolidated_penalty=0.)
-    store = state.extras['private_probes']
-    replay = state.extras['replay']
+    metrics = dict(norm_reduction_pct=0., consolidated_penalty=0., kl=0., logit_mse=0., ranking_loss=0.,
+                   rank_changed_positions=0., greedy_changed_positions=0., evaluated_positions=0.)
+    maximum_kl = 0.
+    store, replay, dual = (state.extras[name] for name in ('private_probes', 'replay', 'dual'))
     local_entries = [entry for entry in entries if owned(entry, state)]
     for entry, record in replay.reader.iterate(local_entries):
         model, base, snapshot, directions, rates, batch, source = replay.load(entry, record)
         probes, private_optimizer = store.load(entry['sha256'], snapshot)
-        _, effective, consolidated = action(state.extras['forward'], probes, snapshot, directions, rates, config['radius_floor'])
-        parameters = base | effective
-        loss, gradient = next_loss_gradient(model, parameters, effective, batch, source['loss'],
-                                            config['microbatch_size'], config, state)
-        objective = delayed_loss(effective, consolidated, gradient, config['consolidated_penalty']) / len(entries)
+        _, effective, consolidated = action(state.model, probes, snapshot, directions, rates, config['radius_floor'],
+                                             advance_optimizer=False, proposer=state.extras['proposal_forward'])
+        gradient, observed = preservation_gradient(model, base, base | effective, effective, batch, config, state, dual.value)
+        norm_change = group_norm_change(snapshot, effective)
+        storage = penalty(consolidated)
+        credit = sum((value * gradient[name].detach()).sum() for name, value in effective.items())
+        objective = (norm_change + credit + config['consolidated_penalty'] * storage) / len(entries)
         objective.backward()
         torch.nn.utils.clip_grad_norm_(probes.parameters(), config['gradient_clip'])
         private_optimizer.step()
         store.save(entry['sha256'], state.step, probes, private_optimizer)
-        metrics['next_batch_loss'] += loss.item() / len(entries)
-        metrics['consolidated_penalty'] += penalty(consolidated).detach().item() / len(entries)
+        metrics['norm_reduction_pct'] -= 100 * norm_change.detach().item() / len(entries)
+        metrics['consolidated_penalty'] += storage.detach().item() / len(entries)
+        maximum_kl = max(maximum_kl, observed.pop('maximum_kl'))
+        for name, value in observed.items():
+            metrics[name] += value if name.endswith('positions') else value / len(entries)
     finish(state.model, metrics, state.extras['world_size'])
+    maximum = torch.tensor(maximum_kl, device=state.extras['device'], dtype=torch.float64)
+    if state.extras['world_size'] > 1:
+        dist.all_reduce(maximum, op=dist.ReduceOp.MAX)
     torch.nn.utils.clip_grad_norm_(state.model.parameters(), config['gradient_clip'])
+    state.extras['train_loss'] = (-metrics['norm_reduction_pct'] / 100
+        + config['consolidated_penalty'] * metrics['consolidated_penalty']
+        + config['preservation']['logit_mse_weight'] * metrics['logit_mse']
+        + dual.value * metrics['kl'] + config['preservation']['ranking_weight'] * metrics['ranking_loss'])
+    metrics.update(maximum_kl=maximum.item(), preservation_multiplier=dual.value)
     state.extras['metrics'] = metrics
-    state.extras['train_loss'] = metrics['next_batch_loss'] + config['consolidated_penalty'] * metrics['consolidated_penalty']
-
-
-def evaluate(every):
-    @torch.no_grad()
-    def hook(config, state):
-        if state.extras['rank']:
-            return
-        if (state.step + 1) % every and state.step + 1 != config['train_steps']:
-            return
-        if config.get('validation_data') is None:
-            return
-        catalog = build(config['validation_data'])
-        training_ids = {entry['sha256'] for entries in state.train_batches.domains.values() for entry in entries}
-        entries = [entry for domain in catalog.domains.values() for entry in domain]
-        if training_ids & {entry['sha256'] for entry in entries}:
-            raise ValueError('offline training and validation checkpoints overlap')
-        totals = {}
-        state.model.eval()
-        try:
-            for entry in entries:
-                model, base, snapshot, directions, rates, batch, source = state.extras['replay'].load(entry)
-                probes, _ = state.extras['private_probes'].load(entry['sha256'], snapshot)
-                _, effective, _ = action(state.extras['forward'], probes, snapshot, directions, rates, config['radius_floor'])
-                inputs, targets = batch['inputs'], batch['targets']
-                loss = inputs.new_zeros((), dtype=torch.float32)
-                for start in range(0, len(inputs), config['microbatch_size']):
-                    with autocast(config, state):
-                        loss += state.extras['loss_forward'](model, base | effective,
-                            inputs[start:start + config['microbatch_size']], targets[start:start + config['microbatch_size']],
-                            locate(source['loss']['name']), source['loss']['kwargs'])
-                count = len(targets) if targets.is_floating_point() else targets.numel()
-                total, examples = totals.get(entry['domain'], (0., 0))
-                totals[entry['domain']] = total + loss.item() / count, examples + 1
-        finally:
-            state.model.train()
-        state.extras.setdefault('metrics', {}).update({f'validation_{domain}_loss': total / count for domain, (total, count) in totals.items()})
-    return hook
+    dual.update(metrics['kl'])

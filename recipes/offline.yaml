@@ -4,13 +4,14 @@ runtime:
   device: cuda
   world_size: 1
   threads: 2
-  matmul_precision: high
-  autocast: bfloat16
+  matmul_precision: highest
+  autocast: null
   recompile_limit: 64
+  parameter_dtype: float32
 seeds:
   initialization: 510001
 compile:
-  enabled: true
+  enabled: false
   kwargs:
     fullgraph: true
     dynamic: false
@@ -103,3 +104,17 @@ compile_gpt_loss_kwargs:
   fullgraph: true
   dynamic: false
 source_compatibility: recipes/source_compatibility.yaml
+compile_proposal: true
+preservation:
+  top_k: 100
+  margin_fraction: 0.5
+  logit_mse_weight: 100.0
+  ranking_weight: 1000000.0
+  dual:
+    _target_: chisel.preservation.Dual
+    initial: 10000.0
+    learning_rate: 1000000000000.0
+    tolerance: 1.0e-12
+    maximum: 10000000000.0
+training_audit_data: null
+preservation_examples: null
