@@ -118,3 +118,4 @@ preservation:
     maximum: 10000000000.0
 training_audit_data: null
 preservation_examples: null
+batch_cache_size: 64

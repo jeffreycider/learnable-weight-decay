@@ -49,7 +49,7 @@ def setup():
     def hook(config, state):
         state.train_batches = build(config['data'])
         state.backward = backward
-        state.extras['replay'] = Replay(state.extras['device'], build(config.get('checkpoint_io', {'_target_': 'chisel.checkpoint_io.CheckpointReader'})), config.get('source_compatibility'), phase='current', parameter_dtype=config['runtime'].get('parameter_dtype'))
+        state.extras['replay'] = Replay(state.extras['device'], build(config.get('checkpoint_io', {'_target_': 'chisel.checkpoint_io.CheckpointReader'})), config.get('source_compatibility'), phase='current', parameter_dtype=config['runtime'].get('parameter_dtype'), batch_cache_size=config.get('batch_cache_size', 64))
         state.extras['logits_forward'] = torch.compile(logits, **config.get('compile_gpt_loss_kwargs', dict(fullgraph=True, dynamic=False))) if config['compile_gpt_loss'] else logits
         state.extras['proposal_forward'] = torch.compile(propose, fullgraph=True, dynamic=False) if config.get('compile_proposal') else propose
         state.extras['dual'] = build(config['preservation']['dual'])
