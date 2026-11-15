@@ -43,6 +43,10 @@ def open_run():
             if recipe.exists() and not config.get('resume'):
                 raise FileExistsError(f'refuse to overwrite {root}')
             (root / ('resume.yaml' if recipe.exists() else 'recipe.yaml')).write_text(yaml.safe_dump(config, sort_keys=False))
+            if not recipe.exists():
+                raise RuntimeError('resolved recipe was not written')
+            if not (root / 'hyperparameters.yaml').exists():
+                (root / 'hyperparameters.yaml').write_bytes(recipe.read_bytes())
             sources = sorted(Path('chisel').glob('*.py')) + [Path('baseline/model.py'), Path('baseline/data.py')]
             hashes = {str(path): hashlib.sha256(path.read_bytes()).hexdigest() for path in sources}
             state.extras['source_hashes'] = hashes
