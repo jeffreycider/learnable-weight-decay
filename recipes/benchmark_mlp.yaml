@@ -1,0 +1,25 @@
+seed: 15
+output: runs/systems/mlp.json
+shape: [64, 128, 192]
+dtype: float32
+warmup: 10
+steps: 50
+model:
+  _target_: baseline.model.MLP
+  dim: 192
+  expansion: 4
+optimizer:
+  _target_: torch.optim.Adam
+  lr: 0.0001
+  fused: true
+variants:
+- name: compiled-native
+  compile: {fullgraph: true, dynamic: false}
+- name: compiled-fused
+  model: {activation_backend: fused_fp32}
+  compile: {fullgraph: true, dynamic: false}
+- name: cudagraph-native
+  compile: {fullgraph: true, dynamic: false, mode: reduce-overhead}
+- name: cudagraph-fused
+  model: {activation_backend: fused_fp32}
+  compile: {fullgraph: true, dynamic: false, mode: reduce-overhead}
