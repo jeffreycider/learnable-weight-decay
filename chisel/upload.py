@@ -8,6 +8,7 @@ import signal
 import time
 from chisel.harness import resolve
 from chisel.storage import atomic_json, client_from_config, upload_receipt
+from chisel.receipt_discovery import ready_receipts
 
 
 def run(config):
@@ -16,6 +17,8 @@ def run(config):
     lock = (root / 'uploader.lock').open('a')
     fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
     stopping, pending, failed = False, {}, {}
+    verified = set()
+    receipts, next_scan = [], 0.
 
     def stop(signum, frame):
         nonlocal stopping
@@ -31,18 +34,24 @@ def run(config):
                         try:
                             future.result()
                             failed.pop(str(receipt), None)
+                            verified.add(receipt)
                         except Exception as error:
                             failed[str(receipt)] = dict(error=str(error), retry_after=time.time() + config['retry_seconds'])
-                receipts = sorted(root.glob(config['receipt_glob']))
-                verified = 0
+                if time.monotonic() >= next_scan:
+                    receipts = sorted(ready_receipts(root)) if config['receipt_glob'] == '**/*.ready.json' else sorted(root.glob(config['receipt_glob']))
+                    next_scan = time.monotonic() + config.get('scan_interval_seconds', 300)
                 for receipt in receipts:
+                    if stopping or len(pending) >= config['workers']:
+                        break
+                    if receipt in verified or receipt in pending.values():
+                        continue
                     marker = receipt.with_name(receipt.name.replace('.ready.json', '.uploaded.json'))
                     if marker.exists():
                         row, uploaded = json.loads(receipt.read_text()), json.loads(marker.read_text())
                         expected = config['prefix'].rstrip('/') + '/' + (receipt.parent / row['file']).relative_to(root).as_posix()
                         if (uploaded['bucket'], uploaded['key'], uploaded['sha256']) != (config['bucket'], expected, row['sha256']):
                             raise ValueError(f'upload marker destination or identity mismatch: {marker}')
-                        verified += 1
+                        verified.add(receipt)
                         continue
                     if stopping or receipt in pending.values() or len(pending) >= config['workers']:
                         continue
@@ -50,7 +59,7 @@ def run(config):
                         continue
                     future = pool.submit(upload_receipt, client, root, receipt, config['bucket'], config['prefix'])
                     pending[future] = receipt
-                atomic_json(root / 'upload_status.json', dict(ready=len(receipts), verified=verified,
+                atomic_json(root / 'upload_status.json', dict(ready=len(receipts), verified=len(verified),
                     pending=len(pending), failures=failed, updated_unix=time.time()))
                 if stopping and not pending:
                     break
