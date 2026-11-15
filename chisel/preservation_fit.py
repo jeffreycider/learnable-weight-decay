@@ -2,6 +2,7 @@
 import torch
 from chisel.preservation import prediction_terms, ranking_changes
 from chisel.training import autocast
+from chisel.teacher_cache import TeacherCache
 
 
 def logits(model, parameters, inputs):
@@ -25,6 +26,9 @@ def preservation_gradient(model, original, edited, effective, batch, config, sta
     microbatch = config['microbatch_size']
     loss_config = config['preservation']
     forward = state.extras['logits_forward']
+    cache = state.extras.setdefault('teacher_cache', TeacherCache(config.get('teacher_cache_bytes', 0)))
+    identity = config.get('preservation_cache_key')
+    sample = config.get('preservation_sample_seed') if len(inputs) < len(batch['inputs']) else None
     gradients = {name: torch.zeros_like(value) for name, value in effective.items()}
     metrics = dict(kl=0., logit_mse=0., ranking_loss=0., maximum_kl=0., rank_changed_positions=0,
                    greedy_changed_positions=0, evaluated_positions=0)
@@ -34,8 +38,13 @@ def preservation_gradient(model, original, edited, effective, batch, config, sta
         with autocast(config, state):
             # Match the student's autograd signature so compilation uses the same
             # floating-point forward. Detach immediately; never backpropagate teacher.
-            reference = original | {name: original[name].detach().requires_grad_() for name in effective}
-            teacher = forward(model, reference, examples).detach()
+            key = (identity, sample, start, len(examples)) if identity is not None else None
+            teacher = cache.get(key)
+            if teacher is None:
+                reference = original | {name: original[name].detach().requires_grad_() for name in effective}
+                teacher = forward(model, reference, examples).detach()
+                cache.put(key, teacher)
+                state.extras['training_forwards'] = state.extras.get('training_forwards', 0) + 1
             student = forward(model, edited, examples)
         terms = prediction_terms(student, teacher, loss_config['top_k'], loss_config['margin_fraction'], loss_config.get('ranking_power', 2))
         loss = weight * (loss_config['logit_mse_weight'] * terms['mse'].mean()
@@ -52,7 +61,7 @@ def preservation_gradient(model, original, edited, effective, batch, config, sta
         metrics['rank_changed_positions'] += changes['rank_changed'].item()
         metrics['greedy_changed_positions'] += changes['greedy_changed'].item()
         metrics['evaluated_positions'] += changes['positions']
-        state.extras['training_forwards'] = state.extras.get('training_forwards', 0) + 2
+        state.extras['training_forwards'] = state.extras.get('training_forwards', 0) + 1
     return gradients, metrics
 
 

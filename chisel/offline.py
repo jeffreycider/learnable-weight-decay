@@ -98,6 +98,7 @@ def backward(config, state):
         model, base, snapshot, directions, rates, batch, source = replay.load(entry, record, batch_step=batch_step)
         probes, private_optimizer = store.load(entry['sha256'], snapshot)
         measurement_config = config | config.get('domain_settings', {}).get(entry['domain'], {})
+        measurement_config['preservation_cache_key'] = (entry['sha256'], record['step'] if batch_step is None else batch_step)
         if config.get('resample_preservation_examples', True):
             measurement_config['preservation_sample_seed'] = seed_at(config['seeds']['initialization'], int(entry['sha256'][:16], 16) ^ state.step)
         for inner in range(config.get('private_steps', 1)):
@@ -138,5 +139,8 @@ def backward(config, state):
         + dual.value * metrics['kl'] + config['preservation']['ranking_weight'] * metrics['ranking_loss'])
     metrics.update(maximum_kl=maximum.item(), preservation_multiplier=dual.value, shared_gradient_norm=shared_norm.item(),
                    private_optimizer_steps=len(entries) * config.get('private_steps', 1))
+    cache = state.extras.get('teacher_cache')
+    if cache is not None:
+        metrics.update(teacher_cache_hits=cache.hits, teacher_cache_misses=cache.misses, teacher_cache_bytes=cache.bytes)
     state.extras['metrics'] = metrics
     dual.update(metrics['kl'])
