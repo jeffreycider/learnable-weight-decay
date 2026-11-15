@@ -93,7 +93,7 @@ def mirror(config):
             for receipt in receipts:
                 if receipt in completed or receipt in pending:
                     continue
-                if len(pending) >= 2 * config['workers']:
+                if len(pending) >= config.get('max_pending', 32 * config['workers']):
                     break
                 try:
                     json.loads(receipt.read_text())
