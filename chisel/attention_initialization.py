@@ -18,6 +18,8 @@ def identity_codes():
 def measure_initial():
     """Record step zero before any learning, without advancing the harness clock."""
     def hook(config, state):
+        if state.extras.get('rank', 0):
+            return
         from chisel.overfit_diagnostics import measure
         step = state.step
         state.step = -1
