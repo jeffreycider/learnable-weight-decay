@@ -1,0 +1,11 @@
+--- a/airbench94_muon.py
++++ b/airbench94_muon.py
+@@ -429,7 +429,7 @@
+     epoch = "eval"
+     print_training_details(locals(), is_final_entry=True)
+ 
+-    return tta_val_acc
++    return tta_val_acc, optimizers
+ 
+ if __name__ == "__main__":
+ 

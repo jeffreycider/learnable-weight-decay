@@ -1,0 +1,25 @@
+{
+  "name": "chisel-hidden1750-low-lr-v1",
+  "gpu": "5ced1b49-f912-4de3-9f94-9e47a7b56268",
+  "source_archive": "/scratch/staging/chisel-eb67fa2.tar.gz",
+  "source_sha256": "e591b0a28f60e29b2dfffa779bde1676490d91332987fbed9c7850b54cb0ce4b",
+  "checkpoint": "/scratch/checkpoints/learnable-weight-decay/frozen_objective/seed0_step1750.pt",
+  "checkpoint_sha256": "3902bf02f7337493a6d215777b9adf617429001a11e668a64609f6b74f1c2d8a",
+  "parameters": {
+    "steps": 1000,
+    "lr": 0.0002,
+    "buffer_sequences": 4096,
+    "calibration_sequences": 4,
+    "eval_every": 100,
+    "eval_sequences": 64,
+    "final_audit_sequences": 1024,
+    "synthetic_audit_sequences": 64,
+    "norm_target_fraction": 0.0001,
+    "kl_budget": 0.001,
+    "radius_fraction": 0.01,
+    "optimizer_mode": "adam",
+    "action_units": "relative",
+    "preservation_penalty": "deadband",
+    "editable_scope": "hidden"
+  }
+}

@@ -1,0 +1,97 @@
+{
+  "baseline": {
+    "record": 46,
+    "commit": "4ea6b937337a4889b8cfe3f38a93d120048d8f71",
+    "base_lr": 0.0375,
+    "cwd": 0.025,
+    "retune": false,
+    "schedule_steps": 2900,
+    "common_endpoints": [
+      2690,
+      2900
+    ],
+    "readout": "published tail EMA"
+  },
+  "variants": {
+    "A": "inner-outer",
+    "B": "outer-only"
+  },
+  "qualification": {
+    "frozen_x_steps": 125,
+    "seed": 0,
+    "extra_gpt_computation_only_in_separate_tests": true,
+    "trajectory_variability": "Unresolved at step125; use matched controls and paired confirmation, not a tolerance claim."
+  },
+  "subsequent_tuning": {
+    "scope": "A/B only; baseline fixed",
+    "promote": "compare promising residual rates over complete2900step runs before claiming gains",
+    "local_base_lr_candidates": [
+      0.028125,
+      0.0375,
+      0.05
+    ],
+    "local_cwd_candidates": [
+      0.0125,
+      0.025,
+      0.05
+    ],
+    "policy": "small cross around best learned setting, then joint LR/WD neighbors if supported; momentum after those",
+    "confirmation_seeds": [
+      1,
+      2
+    ],
+    "budget": "two8H100leases initially4h each; inspect progress frequently, extend only for justified experiments"
+  },
+  "validation_policy": "external HP selection between restarted trials only; never next-loss credit, within-run learning, schedule, or candidate selection",
+  "leases": {
+    "A": "2b81903f-a6b9-43b8-9d12-f1b3744e9643",
+    "B": "e79cff99-4035-4651-a4fe-a4369015df0a"
+  },
+  "supersedes": "Early-start 750-step pilots and abrupt activation after 1000 steps are historical diagnostics.",
+  "residual_schedule": {
+    "warmup_steps": 500,
+    "meta_ramp_steps": 500,
+    "formula": "peak_lr * clamp((t - 500) / 500, 0, 1); t is zero-indexed GPT iteration",
+    "warmup_meta": "moments",
+    "residual_decay": "X <- (1-decay)*X before Adam, after consuming pending credit, from t=500 onward; independent of LR",
+    "meta_betas": [
+      0.9,
+      0.99
+    ],
+    "meta_clip": 1.0
+  },
+  "initial_panel": {
+    "peak_meta_lr": [
+      1e-05,
+      0.0001
+    ],
+    "residual_decay": [
+      0.1,
+      0.01
+    ],
+    "steps": 2900,
+    "seed": 0,
+    "reset_all_learned_state": true,
+    "frozen_control_per_variant": true,
+    "order": [
+      [
+        1e-05,
+        0.1
+      ],
+      [
+        0.0001,
+        0.1
+      ],
+      [
+        1e-05,
+        0.01
+      ],
+      [
+        0.0001,
+        0.01
+      ]
+    ],
+    "selection": "Between-run endpoint comparisons only; confirm candidates with paired seeds 1 and 2 before claiming improvement.",
+    "frozen_control": "nominal meta LR1e-5, warmup_steps2900, zero executed residuals throughout; retain moment VJPs for matched instrumentation"
+  }
+}

@@ -1,0 +1,9 @@
+# Optional mixed GPT/CIFAR offline runtime, qualified on the replacement node.
+# The existing muoff-torch211 image has torch but omits torchvision.
+# This pins the replacement environment, not the unknown old torchvision version.
+# Install before launching training; do not let an unpinned torchvision install
+# replace the record's Torch build. Teacher equivalence remains a separate check.
+--extra-index-url https://download.pytorch.org/whl/cu128
+-r requirements.txt
+torch==2.11.0+cu128
+torchvision==0.26.0+cu128

@@ -1,0 +1,29 @@
+{
+  "upstream_url": "https://github.com/KellerJordan/cifar10-airbench.git",
+  "upstream_commit": "4c1b6d1e3889b037efadcfd5c0ea65b246592362",
+  "upstream_commit_date": "2025-11-15T14:31:56-08:00",
+  "retrieved_from_clone": "/tmp/chisel-cifar-airbench",
+  "vendored_utc": "2026-11-10T12:45:29Z",
+  "files": {
+    "airbench94_muon.py": {
+      "sha256": "704e29251a5207d8aed8a35adf13f772ff386b90a712aaddc2a28854385b536e",
+      "status": "pristine byte-identical copy of upstream airbench94_muon.py"
+    },
+    "LICENSE": {
+      "sha256": "418c56bc42284062ac536f12496a0e1d9c8edb68bcde8da29675bd48492ce022",
+      "status": "pristine upstream license text (MIT permission grant, Copyright (c) 2024 Keller Jordan)"
+    },
+    "return_optimizers.patch": {
+      "sha256": "ff225c6c4a3d9245286bb0a602ee39bcba49e102890aa9adff41804117a0cf84",
+      "status": "one hunk: main returns (tta_val_acc, optimizers) instead of tta_val_acc; applied in memory by scripts/capture_cifar_chisel_bank.py, never to the vendored file",
+      "patched_source_sha256": "fdf9ea5b81aa037c22780c2620150c227fadc648bfefdae00e65ef931156a400"
+    },
+    "defer_test_readouts.patch": {
+      "sha256": "f9e5318edea0e0914d5a8d8b726e76dfee9ea6c832fa9ba2a56ef66b49046710",
+      "status": "OPTIONAL (--defer-test-readouts, default off), applied in memory on top of return_optimizers.patch: three hunks, test_loader=None, val_acc=None, tta_val_acc=None; training loop, reset, optimizers, data, RNG unchanged; accuracies stored as None with evaluation_deferred=true",
+      "patched_source_sha256": "94e7292e8c5b0d45eae5c9bcc4134f3e12f957face8fd07332b412f09adaf275"
+    }
+  },
+  "usage": "scripts/capture_cifar_chisel_bank.py executes the patched source as a module (never as __main__), pins CifarLoader to a prepared data directory (train.pt/test.pt, upstream dict format; no download), and calls main(seed, model) once per seed on one compiled model. Upstream's 200-trial loop and warmup run are not executed.",
+  "owner": "fable (vendor pin, wrapper, focused tests)"
+}

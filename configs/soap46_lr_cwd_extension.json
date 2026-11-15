@@ -1,0 +1,49 @@
+{
+  "status": "conditionally_authorized_not_active",
+  "condition": "Both initial selected-method development differences are nonnegative; all endpoints and archives closed",
+  "cells": [
+    [
+      0.03,
+      0.01875
+    ],
+    [
+      0.03375,
+      0.0125
+    ],
+    [
+      0.03,
+      0.0125
+    ]
+  ],
+  "variant": "inner-outer",
+  "tuning_seed": 0,
+  "development_seed": 3,
+  "shared_control": {
+    "meta_lr": 1e-05,
+    "meta_clip": 1.0,
+    "meta_betas": [
+      0.9,
+      0.99
+    ],
+    "warmup_steps": 2900,
+    "warmup_meta": "moments",
+    "meta_ramp_steps": 500,
+    "residual_decay": 0.1,
+    "seed": 3,
+    "checkpoint_every": 0,
+    "variant": "inner-outer",
+    "base_lr": 0.0375,
+    "cwd": 0.025,
+    "name": "soap46-lrwd-dev0-frozen-seed3-v1"
+  },
+  "maximum_additional_development_runs": 4,
+  "fresh_confirmation_seeds": [
+    4,
+    5
+  ],
+  "maximum_conditional_fresh_runs": 4,
+  "numerical_source": "0950ad0d323b042c81740b27b9526f820dbd2633",
+  "fixed": "All residual settings, originalbasis(.9,.99)/clip1/peak1e-5/decay.1,500-1000schedule,precision,architecture,data,batch andpublishedbaseline fixed",
+  "selection": "Three newA seed0cells plus existingincumbent. Do not rerunfailedincumbent. One newwinner onseed3vsrealsharedcontrol; onlynegativepaireddevelopment getsfresh4/5. B qualifyingtakespriority andcancels extension. No Bgrid/beta/frame/reset.",
+  "authorization": "Parent explicit approval2026-11-10~06:37UTC; max4additionaldevelopment runs, no changeactiveB"
+}

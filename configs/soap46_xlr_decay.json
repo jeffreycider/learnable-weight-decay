@@ -1,0 +1,79 @@
+{
+  "purpose": "Original-B residual learning-rate and direct-decay interaction/replication screen, published GPT baseline fixed",
+  "numeric_source": {
+    "archive": "/scratch/staging/soap46-source-0950ad0.tar.gz",
+    "sha256": "1869aa79df516f207dd83300850db37a9fb1db6ff8d2cf7f7ae71fcc8fb86698",
+    "source_commit": "0950ad0d323b042c81740b27b9526f820dbd2633"
+  },
+  "fixed": {
+    "meta_clip": 1.0,
+    "meta_betas": [
+      0.9,
+      0.99
+    ],
+    "warmup_steps": 500,
+    "warmup_meta": "moments",
+    "meta_ramp_steps": 500,
+    "checkpoint_every": 0,
+    "variant": "outer-only",
+    "base_lr": 0.0375,
+    "cwd": 0.025
+  },
+  "lanes": [
+    [
+      {
+        "peak_lr": 1e-05,
+        "decay": 0.01,
+        "name": "soap46-xlrdecay-lr1e-5-d01-seed3-v1"
+      },
+      {
+        "peak_lr": 0.0001,
+        "decay": 0.03,
+        "name": "soap46-xlrdecay-lr1e-4-d03-seed3-v1"
+      }
+    ],
+    [
+      {
+        "peak_lr": 0.0001,
+        "decay": 0.01,
+        "name": "soap46-xlrdecay-lr1e-4-d01-seed3-v1"
+      },
+      {
+        "peak_lr": 1e-05,
+        "decay": 0.03,
+        "name": "soap46-xlrdecay-lr1e-5-d03-seed3-v1"
+      }
+    ]
+  ],
+  "gpt_steps": 2900,
+  "development_seed": 3,
+  "confirmation_seeds": [
+    6,
+    7
+  ],
+  "readout": "Published tail EMA at common2900 endpoint, all10485760validationtokens; no winning-checkpoint/readout selection",
+  "selection": {
+    "minimum_improvement": 0.0005,
+    "eligibility": "At least0.0005 lower loss than its own prospectively assigned lane control AND below both lane-control endpoints",
+    "ranking": [
+      "assigned treatment-minus-control difference ascending",
+      "treatment endpoint ascending",
+      "run name lexical ascending"
+    ],
+    "meaning": "Practical screen, not statistical significance; each lane control is shared by its two cells; no exact common-trajectory claim"
+  },
+  "control_design": "Each8H100node runs a new frozen control first, then exactlytwo cells; both control endpoints and their difference reported. Host assignment diagonal, not an exact causal interaction identification.",
+  "confirmation": "If eligible selectexactlyone frozenrecipe; fresh6/7 eachlearned+control, allfouroutcomesregardlessfirstpair. Primaryarithmeticmeanoftwofullendpointdifferences; individualdifferences shown. Historical/development/fresh4/5notpooled.",
+  "resource_estimate": {
+    "screen_total_runs": 6,
+    "screen_parallel_minutes": 70,
+    "screen_upper_usd": 90,
+    "confirmation_runs": 4,
+    "confirmation_parallel_minutes": 45,
+    "confirmation_upper_usd": 65
+  },
+  "launch_deadline_utc": "2026-11-10T13:00:00+00:00",
+  "authorization": "Parent2026-11-10~09:38UTC approvedboundedstageandpracticalrule; dispatchonlyafterpriorfresh4/5pairarchivedandallowance/concurrencychecked; noAdam/frame/reset/baseHPchanges",
+  "no_early_stop": true,
+  "reset_all_state_per_trial": true
+}

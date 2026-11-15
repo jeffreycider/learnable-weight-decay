@@ -1,0 +1,5 @@
+The optional `scripts/fork_soap46_prefix.py` prepares future comparisons from one immutable, same-source, same-variant step-500 checkpoint. It preserves all eight base-optimizer shards, wrapper state, RNG, data cursor, residual Adam moments and pending action-499 credit. It requires exactly zero residuals and the original 500-to-1000 schedule.
+
+A learned fork may change only future residual peak learning rate and direct residual decay. A frozen fork keeps positive nominal learning rate but extends zero-LR warmup to the existing 2900 endpoint, continuing gradient measurements and Adam moments without moving the residuals. A/B moments are never transferred between variants. Parent shard hashes and every declared metadata intervention are recorded. Outputs are published atomically only after all ranks validate.
+
+CPU tests verify unchanged-fork next-step parity, frozen-fork zero residuals and progressing moments, and rejection of stale/incomplete/incompatible inputs. This path has not been qualified on a full GPU prefix. Existing completed studies did not retain a suitable step-500 prefix and cannot retrospectively be described as sharing one.

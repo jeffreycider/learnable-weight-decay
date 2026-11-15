@@ -1,0 +1,23 @@
+{
+  "format": "exact_head_input_v1",
+  "state_bank": "/scratch/checkpoints/learnable-weight-decay/chisel-state-bank-seed0-v1",
+  "output": "/scratch/checkpoints/learnable-weight-decay/chisel-teacher-cache1000-v1",
+  "states": 1000,
+  "train_sequences_per_state": 128,
+  "audit_sequences_per_state": 64,
+  "microbatch_sequences": 16,
+  "data_seed": 400001,
+  "split_seed": 500001,
+  "replay_pool_sequences": 4096,
+  "replay_epoch": 0,
+  "qualification_states": [1, 2, 3, 1000],
+  "generation_transformer_forwards": 12000,
+  "generation_tokens": 196608000,
+  "qualification_transformer_forwards": 8,
+  "qualification_tokens": 131072,
+  "gpt_backwards": 0,
+  "expected_head_feature_bytes": 301989888000,
+  "preservation_targets": "original BF16 head input, frozen checkpoint head GEMM, exact rational15 softcap, FP64 log-softmax",
+  "execution": "eager PR323, strict deterministic Flash policy, Torch2.11",
+  "panels": "unique fixed past-only sequence IDs; global ID hash keeps train and audit disjoint across states; held-out state training panels remain withheld from learning"
+}
