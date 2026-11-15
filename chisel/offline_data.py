@@ -52,12 +52,15 @@ class Catalog:
 
 
 class Replay:
-    def __init__(self, device, reader=None, compatibility=None, phase="next", parameter_dtype=None, batch_cache_size=64):
+    def __init__(self, device, reader=None, compatibility=None, phase="next", parameter_dtype=None, batch_cache_size=64, model_options=None):
         self.device, self.models, self.streams = device, {}, {}
         self.reader = reader or CheckpointReader()
         self.compatibility = compatibility
         self.phase, self.parameter_dtype = phase, parameter_dtype
         self.batch_cache_size, self.batches = batch_cache_size, OrderedDict()
+        self.model_options = model_options or {}
+        if set(self.model_options) - {'linear_backward'}:
+            raise ValueError('replay execution options cannot change the recorded architecture')
 
     def load(self, entry, record=None, batch_step=None):
         record = self.reader.read(entry) if record is None else record
@@ -69,7 +72,7 @@ class Replay:
         key = yaml.safe_dump(config['model'])
         if key not in self.models:
             with torch.random.fork_rng(devices=[]):
-                self.models[key] = build(config['model']).to(self.device)
+                self.models[key] = build(config['model'] | self.model_options).to(self.device)
                 if self.parameter_dtype:
                     self.models[key].to(dtype=getattr(torch, self.parameter_dtype))
         model = self.models[key]

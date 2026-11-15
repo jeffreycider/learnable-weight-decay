@@ -3,6 +3,16 @@ baseline/model.py:
   current: 4381964eb747dc64b2837dff89f64b3e83f27cf08d7dc50e7a10da6356237285
   reason: Default architecture arithmetic unchanged; optional activation backend and
     optional data identity checking. Qualified by default-block and replay tests.
+- captured: b1231374234e6ce771c38deeafa6e229f6fd6e3ec46d9e480124649cbcefeeb8
+  current: f76d4663b915d51f95250d7b11fb15fb44bfeb60ec8958c5560f63ee19ef5bab
+  reason: Native default forward and gradients unchanged; optional backward backend
+    is separately configured and qualified. Prior-source FP32 GPT equality was checked
+    exactly.
+- captured: 4381964eb747dc64b2837dff89f64b3e83f27cf08d7dc50e7a10da6356237285
+  current: f76d4663b915d51f95250d7b11fb15fb44bfeb60ec8958c5560f63ee19ef5bab
+  reason: Native default forward and gradients unchanged; optional backward backend
+    is separately configured and qualified. Prior-source FP32 GPT equality was checked
+    exactly.
 baseline/data.py:
 - captured: 74553c8b5f12b083c3315bcd0d329362bd054bde27ce0580afce6c02b050aacb
   current: 52d19a8ad8563d67aa5197175e67d85e3caacb6d1f2befcd6bc9794dbd41626d

@@ -18,10 +18,16 @@ class RMSNorm(nn.Module):
 
 
 class Linear(nn.Linear):
-    def __init__(self, in_features: int, out_features: int) -> None:
+    def __init__(self, in_features: int, out_features: int, backward_backend="native") -> None:
         super().__init__(in_features, out_features, bias=True)
+        if backward_backend not in ('native', 'tf32x3'):
+            raise ValueError('unknown linear backward backend')
+        self.backward_backend = backward_backend
 
     def forward(self, x: Tensor) -> Tensor:
+        if self.backward_backend == 'tf32x3':
+            from chisel.linear_backward import linear
+            return linear(x, self.weight.type_as(x), self.bias.type_as(x))
         return F.linear(x, self.weight.type_as(x), self.bias.type_as(x))
 
 
@@ -44,7 +50,7 @@ class Rotary(nn.Module):
 
 class CausalSelfAttention(nn.Module):
     def __init__(self, dim: int, head_dim: int = 128, *, causal=True,
-                 attention_scale=0.12, learned_qk_scale=False) -> None:
+                 attention_scale=0.12, learned_qk_scale=False, linear_backward="native") -> None:
         super().__init__()
         if dim % head_dim or head_dim % 4:
             raise ValueError("width must divide into heads; RoPE needs head_dim divisible by four")
@@ -52,10 +58,10 @@ class CausalSelfAttention(nn.Module):
         self.num_heads = dim // head_dim
         self.head_dim = head_dim
         hdim = self.num_heads * self.head_dim
-        self.q = Linear(dim, hdim)
-        self.k = Linear(dim, hdim)
-        self.v = Linear(dim, hdim)
-        self.proj = Linear(hdim, dim)
+        self.q = Linear(dim, hdim, linear_backward)
+        self.k = Linear(dim, hdim, linear_backward)
+        self.v = Linear(dim, hdim, linear_backward)
+        self.proj = Linear(hdim, dim, linear_backward)
         self.rotary = Rotary(head_dim)
         self.log_scale = nn.Parameter(torch.zeros(self.num_heads)) if learned_qk_scale else None
 
@@ -76,14 +82,14 @@ class CausalSelfAttention(nn.Module):
 
 
 class MLP(nn.Module):
-    def __init__(self, dim: int, expansion: int = 4, activation_backend="native") -> None:
+    def __init__(self, dim: int, expansion: int = 4, activation_backend="native", linear_backward="native") -> None:
         super().__init__()
         if activation_backend not in ("native", "fused_fp32"):
             raise ValueError("unknown MLP activation backend")
         self.activation_backend = activation_backend
         hdim = int(expansion * dim)
-        self.fc = Linear(dim, hdim)
-        self.proj = Linear(hdim, dim)
+        self.fc = Linear(dim, hdim, linear_backward)
+        self.proj = Linear(hdim, dim, linear_backward)
 
     def forward(self, x: Tensor) -> Tensor:
         x = self.fc(x)
@@ -97,10 +103,10 @@ class MLP(nn.Module):
 
 
 class Block(nn.Module):
-    def __init__(self, dim: int, *, expansion=4, activation_backend="native", **attention) -> None:
+    def __init__(self, dim: int, *, expansion=4, activation_backend="native", linear_backward="native", **attention) -> None:
         super().__init__()
-        self.attn = CausalSelfAttention(dim, **attention)
-        self.mlp = MLP(dim, expansion, activation_backend)
+        self.attn = CausalSelfAttention(dim, linear_backward=linear_backward, **attention)
+        self.mlp = MLP(dim, expansion, activation_backend, linear_backward)
         self.norm1 = RMSNorm(dim)
         self.norm2 = RMSNorm(dim)
 
@@ -115,7 +121,7 @@ class GPT(nn.Module):
         super().__init__()
         self.embed = nn.Embedding(vocab_size, model_dim).bfloat16()
         self.blocks = nn.ModuleList([Block(model_dim, **block_args) for _ in range(num_layers)])
-        self.proj = Linear(model_dim, vocab_size)
+        self.proj = Linear(model_dim, vocab_size, block_args.get('linear_backward', 'native'))
         self.norm1 = RMSNorm(model_dim)
         self.norm2 = RMSNorm(model_dim)
 

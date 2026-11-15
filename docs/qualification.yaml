@@ -76,3 +76,19 @@ current_stack_qualification:
   limitations:
   - primitive or execution checks do not establish a converged preservation-constrained fit
   - trajectory queues and offline fitting are still running
+
+compensated_backward_qualification:
+  cpu_successful: 81
+  cuda_skipped: 9
+  cuda_unit_successful: 3
+  cuda_unit_seconds: 49.29
+  full_preservation_check:
+    artifact: preservation-backend-benchmark.json
+    token_positions: 16384
+    native_median_seconds: 3.6470
+    compensated_median_seconds: 3.2812
+    relative_gradient_norm_error: 2.5867e-6
+    prediction_metrics: identical
+    compiled_graphs_after_warmup: 5
+    limitation: five interleaved timings per backend on an A100 with concurrent recording; excludes Chisel and Adam work
+  decision: optional; complete training-step throughput and convergence remain to be qualified

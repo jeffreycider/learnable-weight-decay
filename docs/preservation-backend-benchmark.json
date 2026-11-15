@@ -1,0 +1,176 @@
+{
+  "records": [
+    {
+      "repeat": 0,
+      "backend": "native",
+      "seconds": 3.6883608369971626,
+      "metrics": {
+        "kl": 1.3439989808571034e-09,
+        "logit_mse": 3.5098339790096134e-09,
+        "ranking_loss": 5.465608126087318e-07,
+        "maximum_kl": 2.413406189037867e-08,
+        "rank_changed_positions": 2259,
+        "greedy_changed_positions": 1,
+        "evaluated_positions": 16384
+      },
+      "compiled_graphs": 5
+    },
+    {
+      "repeat": 0,
+      "backend": "tf32x3",
+      "seconds": 3.093002947003697,
+      "metrics": {
+        "kl": 1.3439989808571034e-09,
+        "logit_mse": 3.5098339790096134e-09,
+        "ranking_loss": 5.465608126087318e-07,
+        "maximum_kl": 2.413406189037867e-08,
+        "rank_changed_positions": 2259,
+        "greedy_changed_positions": 1,
+        "evaluated_positions": 16384
+      },
+      "compiled_graphs": 5
+    },
+    {
+      "repeat": 1,
+      "backend": "tf32x3",
+      "seconds": 3.5490898589923745,
+      "metrics": {
+        "kl": 1.3439989808571034e-09,
+        "logit_mse": 3.5098339790096134e-09,
+        "ranking_loss": 5.465608126087318e-07,
+        "maximum_kl": 2.413406189037867e-08,
+        "rank_changed_positions": 2259,
+        "greedy_changed_positions": 1,
+        "evaluated_positions": 16384
+      },
+      "compiled_graphs": 5
+    },
+    {
+      "repeat": 1,
+      "backend": "native",
+      "seconds": 3.5573947559896624,
+      "metrics": {
+        "kl": 1.3439989808571034e-09,
+        "logit_mse": 3.5098339790096134e-09,
+        "ranking_loss": 5.465608126087318e-07,
+        "maximum_kl": 2.413406189037867e-08,
+        "rank_changed_positions": 2259,
+        "greedy_changed_positions": 1,
+        "evaluated_positions": 16384
+      },
+      "compiled_graphs": 5
+    },
+    {
+      "repeat": 2,
+      "backend": "native",
+      "seconds": 3.5766989380063023,
+      "metrics": {
+        "kl": 1.3439989808571034e-09,
+        "logit_mse": 3.5098339790096134e-09,
+        "ranking_loss": 5.465608126087318e-07,
+        "maximum_kl": 2.413406189037867e-08,
+        "rank_changed_positions": 2259,
+        "greedy_changed_positions": 1,
+        "evaluated_positions": 16384
+      },
+      "compiled_graphs": 5
+    },
+    {
+      "repeat": 2,
+      "backend": "tf32x3",
+      "seconds": 3.445474695006851,
+      "metrics": {
+        "kl": 1.3439989808571034e-09,
+        "logit_mse": 3.5098339790096134e-09,
+        "ranking_loss": 5.465608126087318e-07,
+        "maximum_kl": 2.413406189037867e-08,
+        "rank_changed_positions": 2259,
+        "greedy_changed_positions": 1,
+        "evaluated_positions": 16384
+      },
+      "compiled_graphs": 5
+    },
+    {
+      "repeat": 3,
+      "backend": "tf32x3",
+      "seconds": 3.281185325991828,
+      "metrics": {
+        "kl": 1.3439989808571034e-09,
+        "logit_mse": 3.5098339790096134e-09,
+        "ranking_loss": 5.465608126087318e-07,
+        "maximum_kl": 2.413406189037867e-08,
+        "rank_changed_positions": 2259,
+        "greedy_changed_positions": 1,
+        "evaluated_positions": 16384
+      },
+      "compiled_graphs": 5
+    },
+    {
+      "repeat": 3,
+      "backend": "native",
+      "seconds": 3.9248063529958017,
+      "metrics": {
+        "kl": 1.3439989808571034e-09,
+        "logit_mse": 3.5098339790096134e-09,
+        "ranking_loss": 5.465608126087318e-07,
+        "maximum_kl": 2.413406189037867e-08,
+        "rank_changed_positions": 2259,
+        "greedy_changed_positions": 1,
+        "evaluated_positions": 16384
+      },
+      "compiled_graphs": 5
+    },
+    {
+      "repeat": 4,
+      "backend": "native",
+      "seconds": 3.6470118639990687,
+      "metrics": {
+        "kl": 1.3439989808571034e-09,
+        "logit_mse": 3.5098339790096134e-09,
+        "ranking_loss": 5.465608126087318e-07,
+        "maximum_kl": 2.413406189037867e-08,
+        "rank_changed_positions": 2259,
+        "greedy_changed_positions": 1,
+        "evaluated_positions": 16384
+      },
+      "compiled_graphs": 5
+    },
+    {
+      "repeat": 4,
+      "backend": "tf32x3",
+      "seconds": 3.2746802190085873,
+      "metrics": {
+        "kl": 1.3439989808571034e-09,
+        "logit_mse": 3.5098339790096134e-09,
+        "ranking_loss": 5.465608126087318e-07,
+        "maximum_kl": 2.413406189037867e-08,
+        "rank_changed_positions": 2259,
+        "greedy_changed_positions": 1,
+        "evaluated_positions": 16384
+      },
+      "compiled_graphs": 5
+    }
+  ],
+  "relative_gradient_error": 2.5866511805032202e-06,
+  "metrics": {
+    "native": {
+      "kl": 1.3439989808571034e-09,
+      "logit_mse": 3.5098339790096134e-09,
+      "ranking_loss": 5.465608126087318e-07,
+      "maximum_kl": 2.413406189037867e-08,
+      "rank_changed_positions": 2259,
+      "greedy_changed_positions": 1,
+      "evaluated_positions": 16384
+    },
+    "tf32x3": {
+      "kl": 1.3439989808571034e-09,
+      "logit_mse": 3.5098339790096134e-09,
+      "ranking_loss": 5.465608126087318e-07,
+      "maximum_kl": 2.413406189037867e-08,
+      "rank_changed_positions": 2259,
+      "greedy_changed_positions": 1,
+      "evaluated_positions": 16384
+    }
+  },
+  "scope": "one complete preservation-gradient evaluation on fixed 16384 tokens; native FP32 forwards, gradient backend varied; colocated recording active"
+}
