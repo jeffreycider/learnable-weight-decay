@@ -50,10 +50,11 @@ class Catalog:
 
 
 class Replay:
-    def __init__(self, device, reader=None, compatibility=None):
+    def __init__(self, device, reader=None, compatibility=None, phase="next", parameter_dtype=None):
         self.device, self.models, self.streams = device, {}, {}
         self.reader = reader or CheckpointReader()
         self.compatibility = compatibility
+        self.phase, self.parameter_dtype = phase, parameter_dtype
 
     def load(self, entry, record=None):
         record = self.reader.read(entry) if record is None else record
@@ -66,6 +67,8 @@ class Replay:
         if key not in self.models:
             with torch.random.fork_rng(devices=[]):
                 self.models[key] = build(config['model']).to(self.device)
+                if self.parameter_dtype:
+                    self.models[key].to(dtype=getattr(torch, self.parameter_dtype))
         model = self.models[key]
         model.load_state_dict(record['weights'])
         for name, parameter in model.named_parameters():
@@ -80,13 +83,22 @@ class Replay:
         raw = {name: p.detach().clone() for name, p in parameters.items()}
         consolidated = {name: torch.zeros_like(p) for name, p in parameters.items()}
         snapshot, directions, rates = observe(parameters, raw, consolidated, hidden, record['activity'])
-        state.optimizer.step()
+        if self.phase == "next":
+            state.optimizer.step()
         base = {name: p.detach().clone() for name, p in model.named_parameters()}
         stream_key = yaml.safe_dump(config['data'])
         if stream_key not in self.streams:
             self.streams[stream_key] = build(config['data'], device=self.device, rank=0, world_size=1)
         stream = self.streams[stream_key]
         cursor = dict(record['next_data'])
+        if self.phase == 'current':
+            if 'current' in record:
+                cursor = dict(record['current']['data'])
+            elif 'step' in cursor:
+                cursor['step'] -= 1
+            else:
+                cursor['pos'] -= cursor['batch_size']
+                cursor['batches'] -= 1
         if 'world_size' in cursor:
             cursor.update(rank=0, world_size=1)  # Replay the entire global text batch.
         if hasattr(stream, 'replay'):

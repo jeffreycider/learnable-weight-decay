@@ -38,8 +38,8 @@ def penalty(consolidated):
     return sum(value.square().sum() for value in consolidated.values()) / sum(value.numel() for value in consolidated.values())
 
 
-def action(actor, probes, snapshot, directions, learning_rates, radius_floor, advance_optimizer=True):
-    edits = bound_edits(snapshot, propose(actor, probes, snapshot), radius_floor)
+def action(actor, probes, snapshot, directions, learning_rates, radius_floor, advance_optimizer=True, proposer=None):
+    edits = bound_edits(snapshot, (proposer or propose)(actor, probes, snapshot), radius_floor)
     if advance_optimizer:
         effective, consolidated = apply_transition(snapshot, edits, directions, learning_rates)
     else:

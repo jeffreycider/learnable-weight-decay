@@ -16,7 +16,7 @@ def source_config(tmp_path):
     cfg=resolve('recipes/nanogpt_capture.yaml')
     cfg.update(train_steps=5,output_dir=str(tmp_path/'source'),microbatch_size=1)
     cfg['runtime'].update(device='cpu',world_size=1,autocast=None)
-    cfg['compile']['enabled']=False
+    cfg['compile']['enabled']=False;cfg['compile_proposal']=False
     cfg['model'].update(vocab_size=16,num_layers=1,model_dim=8,head_dim=4,expansion=2)
     cfg['data']=dict(_target_=__name__+'.ToyStream')
     for spec in cfg['optimizers'].values():
@@ -36,7 +36,7 @@ def test_capture_offline_and_online_share_the_loop(tmp_path):
     manifest=tmp_path/'manifest.yaml'
     manifest.write_text(yaml.safe_dump(dict(states=[dict(path=e['path'],sha256=e['sha256'],domain='nanogpt') for e in entries])))
     cfg=resolve('recipes/offline.yaml');cfg.update(train_steps=3,output_dir=str(tmp_path/'offline'),microbatch_size=1)
-    cfg['runtime'].update(device='cpu',autocast=None);cfg['compile']['enabled']=False
+    cfg['runtime'].update(device='cpu',autocast=None);cfg['compile']['enabled']=False;cfg['compile_proposal']=False
     cfg['model'].update(rank=2,width=16,depth=1,head_dim=4,expansion=2)
     cfg['private_probes']['rank']=2
     cfg['data'].update(manifest=str(manifest),batch_counts=dict(nanogpt=2))
