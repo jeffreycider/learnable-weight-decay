@@ -126,3 +126,18 @@ def test_parallel_checkpoint_cohort_cpu(tmp_path):
 @pytest.mark.skipif(torch.cuda.device_count()<2,reason='two CUDA devices required')
 def test_parallel_checkpoint_cohort_cuda(tmp_path):
     mp.spawn(cohort_worker,args=(str(tmp_path/'cohort'),'nccl'),nprocs=2,join=True)
+
+
+def test_checkpoint_saves_current_private_state_before_actor(monkeypatch):
+    from chisel import recording
+    events=[]
+    class Store:
+        def save(self, identity, step, probes, optimizer): events.append(('private',identity,step))
+    fit=dict(entry={'sha256':'a'},probes=None,private=None)
+    state=RunState(step=24,extras=dict(rank=0,world_size=2,fit=fit,private_probes=Store()))
+    monkeypatch.setattr(recording,'checkpoint',lambda every: lambda cfg,state:events.append(('actor',state.step)))
+    parallel.checkpoint(25)({'train_steps':100},state)
+    assert events==[('private','a',24),('actor',24)]
+    events.clear(); state.extras['rank']=1
+    parallel.checkpoint(25)({'train_steps':100},state)
+    assert not events
