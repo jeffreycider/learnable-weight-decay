@@ -22,6 +22,9 @@ class CheckpointReader:
         self.verified = set()
         self.cache, self.cache_bytes, self.resident_bytes = OrderedDict(), cache_bytes, 0
 
+    def project(self, record):
+        return record
+
     def read(self, entry):
         path = Path(entry['path'])
         before = path.stat()
@@ -35,6 +38,7 @@ class CheckpointReader:
             self.cache[stamp] = (record, size)
             return record
         record = torch.load(path, map_location='cpu', mmap=True, weights_only=False)
+        record = self.project(record)
         sizes = []
         map_tensors(record, lambda value: sizes.append(value.numel() * value.element_size()))
         size = sum(sizes)
