@@ -14,6 +14,11 @@ def propose(actor, probes, snapshot, reference=None, head_dim=None):
     codes = actor(probes.tokens(snapshot))
     if isinstance(codes, dict):
         raise ValueError('attention identity diagnostic expects ordinary matrix codes')
+    return decode(codes, probes, snapshot, reference, head_dim)
+
+
+def decode(codes, probes, snapshot, reference=None, head_dim=None):
+    """Decode supplied global codes; shared by the diagnostic and augmented action."""
     edits = {name: {bank: torch.zeros_like(item['raw']) for bank in ('raw', 'consolidated')}
              for name, item in snapshot.items()}
     for i, name in enumerate(probes.names):
