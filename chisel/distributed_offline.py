@@ -8,7 +8,10 @@ from chisel.storage import sha256
 
 
 def owned(entry, state):
-    return int(entry['sha256'], 16) % state.extras['world_size'] == state.extras['rank']
+    world = state.extras['world_size']
+    owner = getattr(state.train_batches, 'owner', None)
+    rank = owner(entry['sha256'], world) if owner else int(entry['sha256'], 16) % world
+    return rank == state.extras['rank']
 
 
 def synchronize_private_store(state):
