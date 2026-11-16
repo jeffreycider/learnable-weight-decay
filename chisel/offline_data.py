@@ -52,11 +52,12 @@ class Catalog:
 
 
 class Replay:
-    def __init__(self, device, reader=None, compatibility=None, phase="next", parameter_dtype=None, batch_cache_size=64, model_options=None, data_options=None, current_state_only=True):
+    def __init__(self, device, reader=None, compatibility=None, phase="next", parameter_dtype=None, batch_cache_size=64, model_options=None, data_options=None, current_state_only=True, cache_normalized_sensors=False):
         self.device, self.models, self.streams = device, {}, {}
         self.reader = reader or CheckpointReader()
         self.compatibility = compatibility
         self.phase, self.parameter_dtype = phase, parameter_dtype
+        self.cache_normalized_sensors = cache_normalized_sensors
         self.current_state_only = phase == 'current' and current_state_only
         if getattr(self.reader, 'current_only', False) and not self.current_state_only:
             raise ValueError('projected current-weight records cannot reconstruct a full base step')
@@ -101,6 +102,9 @@ class Replay:
         consolidated = {name: torch.zeros_like(p) for name, p in parameters.items()}
         activity = map_tensors(record['activity'], lambda value: value.to(self.device, copy=True))
         snapshot, directions, rates = observe(parameters, raw, consolidated, hidden, activity)
+        if self.cache_normalized_sensors:
+            from chisel.sensor_cache import prepare
+            snapshot = prepare(snapshot)
         if self.phase == "next":
             state.optimizer.step()
         base = {name: p.detach().clone() for name, p in model.named_parameters()}

@@ -3,8 +3,7 @@ import math
 import torch
 from torch import nn
 from baseline.model import Block, RMSNorm
-
-BANKS = ('raw', 'consolidated', 'gradient', 'momentum', 'proposal')
+from chisel.sensor_cache import BANKS, normalized
 
 
 class PrivateProbes(nn.Module):
@@ -25,28 +24,21 @@ class PrivateProbes(nn.Module):
         for index, name in enumerate(self.names):
             item = snapshot[name]
             left, right = self.read_left[index], self.read_right[index]
-            features, scales = [], []
-            for bank in BANKS:
-                value = item[bank].detach()
-                scale = value.square().mean().sqrt().clamp_min(1e-12)
-                features.append((left.T @ (value / scale) @ right).flatten())
-                scales.append(scale.log1p().reshape(1))
-            activity = item.get('activity', {})
-            for bank, probe in [('input', right), ('adjoint', left)]:
-                value = activity.get(bank, probe.new_zeros(probe.shape[0])).detach()
-                scale = value.square().mean().sqrt().clamp_min(1e-12)
-                features.append((value / scale) @ probe)
-                scales.append(scale.log1p().reshape(1))
-            rows, columns = item['raw'].shape
-            dimensions = left.new_tensor([math.log(rows), math.log(columns)])
-            tokens.append(torch.cat((*features, *scales, dimensions)))
+            cache = item.get('encoder_cache')
+            if cache is None:
+                cache = normalized(item)
+            features = [(left.T @ value @ right).flatten() for value in cache['banks']]
+            features += [value @ probe for value, probe in zip(cache['activity'], (right, left))]
+            tokens.append(torch.cat((*features, *cache['scales'], cache['dimensions'])))
         return torch.stack(tokens)
 
     def decode(self, codes, snapshot):
         result = {}
         for index, name in enumerate(self.names):
             left, right = self.write_left[index], self.write_right[index]
-            scale = snapshot[name]['raw'].detach().square().mean().sqrt()
+            item = snapshot[name]
+            scale = (item['encoder_cache']['raw_scale'] if 'encoder_cache' in item
+                     else item['raw'].detach().square().mean().sqrt())
             result[name] = {bank: (left @ codes[index, side] @ right.T) * scale
                             for side, bank in enumerate(('raw', 'consolidated'))}
         return result

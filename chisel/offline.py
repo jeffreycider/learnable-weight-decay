@@ -90,6 +90,7 @@ def setup():
         state.extras['logits_forward'] = torch.compile(logits, **config.get('compile_gpt_loss_kwargs', dict(fullgraph=True, dynamic=False))) if config['compile_gpt_loss'] else logits
         from chisel.compiled_preservation import configure
         configure(config, state)
+        state.extras['replay'].cache_normalized_sensors = config.get('cache_normalized_sensors', False)
         state.extras['proposal_forward'] = torch.compile(propose, fullgraph=True, dynamic=False) if config.get('compile_proposal') else propose
         state.extras['dual'] = build(config['preservation']['dual'])
         scope = config['preservation'].get('dual_scope', 'shared')
