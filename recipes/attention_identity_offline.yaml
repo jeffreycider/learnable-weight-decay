@@ -1,0 +1,17 @@
+extends: offline.yaml
+output_dir: runs/chisel-attention-identity-offline
+replay:
+  _target_: chisel.attention_identity_cohort.AttentionReplay
+proposal_function: chisel.attention_identity_fit.propose
+private_steps: 1
+consolidated_penalty: 0.0
+training_audit_inputs: recorded
+setup:
+- name: chisel.training.initialize
+- name: chisel.training.model
+- name: chisel.training.optimizers
+- name: chisel.offline.setup
+- name: chisel.attention_identity_cohort.setup
+- name: chisel.recording.open_run
+- name: chisel.recording.restore
+- name: chisel.distributed_offline.validate_resume

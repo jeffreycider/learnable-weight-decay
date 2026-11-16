@@ -126,12 +126,19 @@ def setup():
                 raise ValueError('all domains must use the same preservation metric')
         state.train_batches = build(config['data'])
         state.backward = backward
-        state.extras['replay'] = Replay(state.extras['device'], build(config.get('checkpoint_io', {'_target_': 'chisel.checkpoint_io.CheckpointReader'})), config.get('source_compatibility'), phase='current', parameter_dtype=config['runtime'].get('parameter_dtype'), batch_cache_size=config.get('batch_cache_size', 64), model_options=config.get('replay_model_options'), data_options=config.get('replay_data_options'))
+        state.extras['replay'] = build(config.get('replay', {'_target_': 'chisel.offline_data.Replay'}),
+            device=state.extras['device'],
+            reader=build(config.get('checkpoint_io', {'_target_': 'chisel.checkpoint_io.CheckpointReader'})),
+            compatibility=config.get('source_compatibility'), phase='current',
+            parameter_dtype=config['runtime'].get('parameter_dtype'),
+            batch_cache_size=config.get('batch_cache_size', 64),
+            model_options=config.get('replay_model_options'), data_options=config.get('replay_data_options'))
         state.extras['logits_forward'] = torch.compile(logits, **config.get('compile_gpt_loss_kwargs', dict(fullgraph=True, dynamic=False))) if config['compile_gpt_loss'] else logits
         from chisel.compiled_preservation import configure
         configure(config, state)
         state.extras['replay'].cache_normalized_sensors = config.get('cache_normalized_sensors', False)
-        state.extras['proposal_forward'] = torch.compile(propose, fullgraph=True, dynamic=False) if config.get('compile_proposal') else propose
+        proposal = locate(config.get('proposal_function', 'chisel.network.propose'))
+        state.extras['proposal_forward'] = torch.compile(proposal, fullgraph=True, dynamic=False) if config.get('compile_proposal') else proposal
         state.extras['dual'] = build(config['preservation']['dual'])
         scope = config['preservation'].get('dual_scope', 'shared')
         if scope not in ('shared', 'checkpoint'):
