@@ -1,11 +1,12 @@
 from pathlib import Path
 import torch
+import pytest
 from chisel.offline import ProbeStore
 
 
-def make(root, budget):
+def make(root, budget, device="cpu"):
     return ProbeStore(root,dict(seed=2,rank=2,cache_bytes=budget,
-        optimizer=dict(_target_='torch.optim.Adam',lr=.001)),'cpu')
+        optimizer=dict(_target_='torch.optim.Adam',lr=.001)),device)
 
 
 def update(store,identity,step):
@@ -15,8 +16,9 @@ def update(store,identity,step):
     return probes,opt
 
 
-def test_cache_matches_eager_save_and_checkpoint_flush_is_immutable(tmp_path):
-    cached,eager=make(tmp_path/'cached',1<<20),make(tmp_path/'eager',0)
+@pytest.mark.parametrize('device', ['cpu', pytest.param('cuda', marks=pytest.mark.skipif(not torch.cuda.is_available(), reason='CUDA required'))])
+def test_cache_matches_eager_save_and_checkpoint_flush_is_immutable(tmp_path, device):
+    cached,eager=make(tmp_path/'cached',1<<20,device),make(tmp_path/'eager',0,device)
     key='a'*64
     for step in range(3):
         a,ao=update(cached,key,step);b,bo=update(eager,key,step)
@@ -31,7 +33,7 @@ def test_cache_matches_eager_save_and_checkpoint_flush_is_immutable(tmp_path):
     torch.testing.assert_close(cached.cache[key][0]['optimizer']['state'][0]['exp_avg'],old_payload,rtol=0,atol=0)
     update(cached,key,3);assert path.read_bytes()==before
     current=cached.state_dict();assert current['latest'][key]!=str(path)
-    restored=make(tmp_path/'restored',1<<20);restored.load_state_dict(current)
+    restored=make(tmp_path/'restored',1<<20,device);restored.load_state_dict(current)
     a,ao=restored.load(key,{'w':{'raw':torch.ones(8,8)}})
     b,bo=cached.load(key,{'w':{'raw':torch.ones(8,8)}})
     torch.testing.assert_close(a.state_dict(),b.state_dict(),rtol=0,atol=0)
