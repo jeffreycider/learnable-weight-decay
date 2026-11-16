@@ -33,6 +33,8 @@ class PrivateProbes(nn.Module):
         return torch.stack(tokens)
 
     def decode(self, codes, snapshot):
+        gains = codes['gains'] if isinstance(codes, dict) else None
+        codes = codes['low_rank'] if isinstance(codes, dict) else codes
         result = {}
         for index, name in enumerate(self.names):
             left, right = self.write_left[index], self.write_right[index]
@@ -41,11 +43,19 @@ class PrivateProbes(nn.Module):
                      else item['raw'].detach().square().mean().sqrt())
             result[name] = {bank: (left @ codes[index, side] @ right.T) * scale
                             for side, bank in enumerate(('raw', 'consolidated'))}
+            if gains is not None:
+                effective = item['raw'] + item['consolidated']
+                for side, bank in enumerate(('raw', 'consolidated')):
+                    values = gains[index, side]
+                    row = left @ values[1:1 + self.rank]
+                    column = right @ values[1 + self.rank:]
+                    result[name][bank] = result[name][bank] + effective * (
+                        values[0] + row[:, None] + column[None, :])
         return result
 
 
 class Chisel(nn.Module):
-    def __init__(self, rank, width, depth, **block_args):
+    def __init__(self, rank, width, depth, full_rank_gains=False, **block_args):
         super().__init__()
         self.rank = rank
         self.embed = nn.Linear(5 * rank * rank + 2 * rank + 9, width)
@@ -54,12 +64,21 @@ class Chisel(nn.Module):
         self.proj = nn.Linear(width, 2 * rank * rank)
         nn.init.zeros_(self.proj.weight)
         nn.init.zeros_(self.proj.bias)
+        self.gain_proj = nn.Linear(width, 2 * (1 + 2 * rank)) if full_rank_gains else None
+        if self.gain_proj is not None:
+            nn.init.zeros_(self.gain_proj.weight)
+            nn.init.zeros_(self.gain_proj.bias)
 
     def forward(self, tokens):
         hidden = self.embed(tokens.unsqueeze(0))
         for block in self.blocks:
             hidden = block(hidden)
-        return self.proj(self.norm(hidden))[0].reshape(-1, 2, self.rank, self.rank)
+        hidden = self.norm(hidden)
+        codes = self.proj(hidden)[0].reshape(-1, 2, self.rank, self.rank)
+        if self.gain_proj is None:
+            return codes
+        gains = self.gain_proj(hidden)[0].reshape(-1, 2, 1 + 2 * self.rank)
+        return dict(low_rank=codes, gains=gains)
 
 
 def propose(actor, probes, snapshot):
