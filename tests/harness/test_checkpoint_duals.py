@@ -55,7 +55,7 @@ def test_checkpoint_duals_resume_with_identical_weights_and_accounted_loss(tmp_p
         torch.testing.assert_close(left, right, rtol=0, atol=0)
     metrics = resumed.extras['metrics']
     expected = (-metrics['norm_reduction_pct']/100 + config['consolidated_penalty']*metrics['consolidated_penalty']
-                + metrics['kl_penalty'] + config['preservation']['logit_mse_weight']*metrics['logit_mse']
+                + metrics['preservation_penalty'] + config['preservation']['logit_mse_weight']*metrics['logit_mse']
                 + config['preservation']['ranking_weight']*metrics['ranking_loss'])
     assert abs(expected - resumed.extras['train_loss']) < 1e-12
     assert continuous.extras['dual'].value == config['preservation']['dual']['initial']

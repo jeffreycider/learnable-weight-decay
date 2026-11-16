@@ -61,7 +61,7 @@ private_probes:
     weight_decay: 0.0
 microbatch_size: 64
 radius_floor: 1.0e-06
-consolidated_penalty: 0.01
+consolidated_penalty: 0.0
 gradient_clip: 1.0
 setup:
 - name: chisel.training.initialize
@@ -107,16 +107,21 @@ compile_gpt_loss_kwargs:
 source_compatibility: recipes/source_compatibility.yaml
 compile_proposal: true
 preservation:
+  constraint_metric: logit_mse
+  center_logits: false
   top_k: 100
   margin_fraction: 0.5
-  logit_mse_weight: 100.0
-  ranking_weight: 1000000.0
+  logit_mse_weight: 0.0
+  ranking_weight: 0.0
   dual:
-    _target_: chisel.preservation.Dual
+    _target_: chisel.preservation.MultiplicativeDual
     initial: 10000.0
-    learning_rate: 1000000000000.0
-    tolerance: 1.0e-12
+    learning_rate: 0.05
+    tolerance: 1.0e-10
     maximum: 10000000000.0
+  dual_scope: checkpoint
+measure_kl: false
+measure_rankings: false
 training_audit_data: null
 preservation_examples: null
 batch_cache_size: 64

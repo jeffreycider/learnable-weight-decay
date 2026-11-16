@@ -78,6 +78,12 @@ class ProbeStore:
 
 def setup():
     def hook(config, state):
+        constraint = config['preservation'].get('constraint_metric', 'kl')
+        if constraint not in ('kl', 'logit_mse'):
+            raise ValueError('preservation constraint must be kl or logit_mse')
+        for settings in config.get('domain_settings', {}).values():
+            if settings.get('preservation', {}).get('constraint_metric', constraint) != constraint:
+                raise ValueError('all domains must use the same preservation metric')
         state.train_batches = build(config['data'])
         state.backward = backward
         state.extras['replay'] = Replay(state.extras['device'], build(config.get('checkpoint_io', {'_target_': 'chisel.checkpoint_io.CheckpointReader'})), config.get('source_compatibility'), phase='current', parameter_dtype=config['runtime'].get('parameter_dtype'), batch_cache_size=config.get('batch_cache_size', 64), model_options=config.get('replay_model_options'), data_options=config.get('replay_data_options'))
@@ -126,11 +132,12 @@ def backward(config, state):
     entries = next(state.train_batches)
     curriculum = state.extras.get('offline_curriculum', {})
     preservation_weight = curriculum.get('preservation_weight', 1.)
+    constraint = config['preservation'].get('constraint_metric', 'kl')
     metrics = dict(norm_reduction_pct=0., consolidated_penalty=0., kl=0., logit_mse=0., ranking_loss=0.,
                    rank_changed_positions=0., greedy_changed_positions=0., evaluated_positions=0.)
     maximum_kl = 0.
     metrics['private_gradient_norm'] = 0.
-    metrics.update(kl_penalty=0., preservation_multiplier=0.)
+    metrics.update(preservation_penalty=0., fixed_preservation_penalty=0., preservation_multiplier=0.)
     metrics.update(private_first_objective=0., private_last_objective=0.,
                    private_first_rank_changes=0., private_last_rank_changes=0.)
     store, replay, dual = (state.extras[name] for name in ('private_probes', 'replay', 'dual'))
@@ -160,12 +167,13 @@ def backward(config, state):
             norm_change = group_norm_change(snapshot, effective)
             storage = penalty(consolidated)
             measured_objective = (norm_change.detach().item() + config['consolidated_penalty'] * storage.detach().item()
-                + preservation_weight * (config['preservation']['logit_mse_weight'] * observed['logit_mse']
-                + dual.value * observed['kl'] + config['preservation']['ranking_weight'] * observed['ranking_loss']))
+                + measurement_config['preservation']['logit_mse_weight'] * observed['logit_mse']
+                + preservation_weight * dual.value * observed[constraint]
+                + measurement_config['preservation']['ranking_weight'] * observed['ranking_loss'])
             for label, selected in [('first', inner == 0), ('last', inner + 1 == config.get('private_steps', 1))]:
                 if selected:
                     metrics[f'private_{label}_objective'] += measured_objective / len(entries)
-                    metrics[f'private_{label}_rank_changes'] += observed['rank_changed_positions']
+                    metrics[f'private_{label}_rank_changes'] += observed.get('rank_changed_positions', 0)
             credit = sum((value * gradient[name].detach()).sum() for name, value in effective.items())
             objective = (norm_change + credit + config['consolidated_penalty'] * storage) / len(entries)
             if inner + 1 == config.get('private_steps', 1):
@@ -180,14 +188,16 @@ def backward(config, state):
             private_norm = torch.nn.utils.clip_grad_norm_(probes.parameters(), config['gradient_clip'])
             private_optimizer.step()
         store.save(entry['sha256'], state.step, probes, private_optimizer)
-        metrics['kl_penalty'] += preservation_weight * dual.value * observed['kl'] / len(entries)
+        metrics['preservation_penalty'] += preservation_weight * dual.value * observed[constraint] / len(entries)
+        metrics['fixed_preservation_penalty'] += (measurement_config['preservation']['logit_mse_weight'] * observed['logit_mse']
+            + measurement_config['preservation']['ranking_weight'] * observed['ranking_loss']) / len(entries)
         metrics['preservation_multiplier'] += preservation_weight * dual.value / len(entries)
         if dual_bank is not None:
-            dual_bank.update(entry['sha256'], dual, observed['kl'])
+            dual_bank.update(entry['sha256'], dual, observed[constraint])
         metrics['private_gradient_norm'] += private_norm.item() / len(entries)
         metrics['norm_reduction_pct'] -= 100 * norm_change.detach().item() / len(entries)
         metrics['consolidated_penalty'] += storage.detach().item() / len(entries)
-        maximum_kl = max(maximum_kl, observed.pop('maximum_kl'))
+        maximum_kl = max(maximum_kl, observed.pop('maximum_kl', 0.))
         for name, value in observed.items():
             metrics[name] += value if name.endswith('positions') else value / len(entries)
     finish(state.model, metrics, state.extras['world_size'])
@@ -197,16 +207,22 @@ def backward(config, state):
     shared_norm = torch.nn.utils.clip_grad_norm_(state.model.parameters(), config['gradient_clip'])
     state.extras['train_loss'] = (-metrics['norm_reduction_pct'] / 100
         + config['consolidated_penalty'] * metrics['consolidated_penalty']
-        + metrics['kl_penalty']
-        + preservation_weight * (config['preservation']['logit_mse_weight'] * metrics['logit_mse']
-        + config['preservation']['ranking_weight'] * metrics['ranking_loss']))
+        + metrics['preservation_penalty'] + metrics['fixed_preservation_penalty'])
     metrics.update(curriculum)
     metrics.update(maximum_kl=maximum.item(),
-                   kl_tolerance=dual.tolerance, shared_gradient_norm=shared_norm.item(),
+                   preservation_tolerance=dual.tolerance, shared_gradient_norm=shared_norm.item(),
                    private_optimizer_steps=len(entries) * config.get('private_steps', 1))
+    if constraint == 'kl':
+        metrics.update(kl_penalty=metrics['preservation_penalty'], kl_tolerance=dual.tolerance)
+    if not config.get('measure_kl', True) and constraint != 'kl':
+        metrics.pop('kl', None)
+        metrics.pop('maximum_kl', None)
+    if not config.get('measure_rankings', True):
+        for key in ('rank_changed_positions', 'greedy_changed_positions', 'private_first_rank_changes', 'private_last_rank_changes'):
+            metrics.pop(key, None)
     cache = state.extras.get('teacher_cache')
     if cache is not None:
         metrics.update(teacher_cache_hits=cache.hits, teacher_cache_misses=cache.misses, teacher_cache_bytes=cache.bytes)
     state.extras['metrics'] = metrics
     if dual_bank is None:
-        dual.update(metrics['kl'])
+        dual.update(metrics[constraint])
