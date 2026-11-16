@@ -22,7 +22,7 @@ def joint_norm(values):
 
 def normalized_transfer(raw, proposals, gradients, size, gradient_floor):
     """One multiplier across all replicated matrices; do not sum again across ranks."""
-    if not math.isfinite(size) or size < 0 or gradient_floor <= 0:
+    if not math.isfinite(size) or size < 0 or not math.isfinite(gradient_floor) or gradient_floor <= 0:
         raise ValueError('transfer size must be finite/nonnegative; gradient floor positive')
     gradient_norm = joint_norm(gradients.values())
     step_norm = joint_norm([proposals[name] - value for name, value in raw.items()])

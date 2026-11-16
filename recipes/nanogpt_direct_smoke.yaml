@@ -1,0 +1,4 @@
+extends: nanogpt_direct_transfer.yaml
+output_dir: runs/nanogpt-direct-smoke
+# Preserve the full-run LR schedule; stop after memory/throughput qualification.
+stop_step: 20

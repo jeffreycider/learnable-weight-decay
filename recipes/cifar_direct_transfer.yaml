@@ -1,0 +1,29 @@
+extends: cifar.yaml
+output_dir: runs/cifar-direct-transfer
+hyperball_radius_multiplier: 1.0
+baseline_checkpoint: null
+direct_transfer:
+  _target_: chisel.direct_transfer.DirectTransfer
+  optimizer_group: hidden
+  lookahead: chisel.lookahead.next_gradient
+  gradient_floor: 1.0e-20
+  gradient_relative_floor: 1.0e-6
+  preview_zero: false
+  schedule:
+    name: chisel.hypergradient.edit_schedule
+    kwargs:
+      size: 0.1
+      start_step: 0
+      ramp_steps: 0
+      interval: 1
+      terminal_identity: false
+setup:
+- name: chisel.training.initialize
+- name: chisel.training.model
+- name: chisel.training.optimizers
+- name: chisel.training.data
+- name: chisel.direct_setup.radius
+- name: chisel.recording.open_run
+- name: chisel.direct_setup.baseline_checkpoint
+- name: chisel.direct_transfer.setup
+- name: chisel.recording.restore

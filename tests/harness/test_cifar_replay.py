@@ -27,3 +27,15 @@ def test_augmentation_does_not_consume_model_rng(tmp_path):
     s=stream(tmp_path);before=torch.get_rng_state().clone()
     s.replay(0)
     assert torch.equal(before,torch.get_rng_state())
+
+
+def test_preview_preserves_prefetch_iterator_and_next_augmentation(tmp_path):
+    s = stream(tmp_path, 2)
+    next(s)
+    iterator = s.iterator
+    cursor = s.state_dict()
+    preview = s.preview()
+    assert s.iterator is iterator and s.state_dict() == cursor
+    actual = next(s)
+    for key in ('inputs', 'targets'):
+        torch.testing.assert_close(actual[key], preview[key], rtol=0, atol=0)
