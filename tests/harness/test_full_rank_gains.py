@@ -55,10 +55,12 @@ def test_row_column_codes_and_global_context_are_trainable():
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(),reason='CUDA required')
-def test_full_rank_gain_compilation_gradient_parity_and_reuse():
+@pytest.mark.parametrize('normalize_gains', [False, True])
+def test_full_rank_gain_compilation_gradient_parity_and_reuse(normalize_gains):
     from torch._dynamo.utils import counters
     torch.set_float32_matmul_precision('highest')
     actor,probes,snapshot=example('cuda')
+    actor.normalize_gains=normalize_gains
     with torch.no_grad():actor.gain_proj.weight.normal_(std=.01)
     compiled=torch.compile(propose,fullgraph=True,dynamic=False)
     def compute(fn):
@@ -74,3 +76,34 @@ def test_full_rank_gain_compilation_gradient_parity_and_reuse():
         with torch.no_grad():actor.gain_proj.bias.add_(.0001)
         compute(compiled)
     assert counters['stats']['unique_graphs']==count
+
+
+@pytest.mark.parametrize('shape',[(16,32),(32,16)])
+def test_normalized_gain_unit_edits_match_low_rank_units(shape):
+    # Constant RMS weights and unit-norm probe columns give equal derivative norms.
+    rank=2;rho=.07
+    probes=PrivateProbes({'w':shape},rank).double()
+    with torch.no_grad():
+        probes.write_left[0].copy_(torch.linalg.qr(probes.write_left[0]).Q)
+        probes.write_right[0].copy_(torch.linalg.qr(probes.write_right[0]).Q)
+    snapshot={'w':dict(raw=torch.full(shape,rho,dtype=torch.float64),
+                       consolidated=torch.zeros(shape,dtype=torch.float64))}
+    for coordinate in range(1+2*rank):
+        gains=torch.zeros(1,2,1+2*rank,dtype=torch.float64)
+        gains[0,0,coordinate]=1
+        codes=dict(low_rank=torch.zeros(1,2,rank,rank,dtype=torch.float64),
+                   gains=gains,normalize_gains=True)
+        edit=probes.decode(codes,snapshot)['w']['raw']
+        assert edit.norm().item()==pytest.approx(rho,rel=1e-12)
+    codes['gains'].zero_();codes['low_rank'][0,0,0,0]=1
+    assert probes.decode(codes,snapshot)['w']['raw'].norm().item()==pytest.approx(rho,rel=1e-12)
+
+
+def test_gain_normalization_does_not_change_initial_learned_edit():
+    actor,probes,snapshot=example()
+    with torch.no_grad():actor.proj.weight.normal_(std=.1)
+    before=propose(actor,probes,snapshot)
+    actor.normalize_gains=True
+    after=propose(actor,probes,snapshot)
+    for name in before:
+        for side in before[name]:torch.testing.assert_close(after[name][side],before[name][side],rtol=0,atol=0)
