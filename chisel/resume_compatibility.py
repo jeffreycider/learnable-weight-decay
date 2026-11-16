@@ -5,7 +5,7 @@ import yaml
 from chisel.storage import sha256
 
 PERFORMANCE_FIELDS = {
-    'private_probes.cache_bytes', 'cache_normalized_sensors',
+    'private_probes.cache_bytes', 'private_probes.buffered_load', 'cache_normalized_sensors',
     'compile_preservation_loss', 'teacher_cache_bytes',
     'checkpoint_io.cache_bytes', 'checkpoint_io.pin_memory',
     'distributed_audit', 'training_audit_inputs',
