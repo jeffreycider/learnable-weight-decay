@@ -153,7 +153,9 @@ def test_compiled_identity_preservation_uses_matching_arithmetic():
     batch=dict(inputs=torch.randn(8,3,32,32,device='cuda'))
     gradients,metrics=preservation_gradient(model,base,base|effective,effective,batch,config,state,1e4)
     assert metrics['kl']==0 and metrics['logit_mse']==0 and metrics['rank_changed_positions']==0,metrics
-    assert all(torch.count_nonzero(g)==0 for g in gradients.values())
+    # Centering the double-precision KL leaves roundoff in its zero-loss derivative.
+    maximum_gradient = max(g.abs().max().item() for g in gradients.values())
+    assert maximum_gradient < 1e-9, maximum_gradient
 
 
 def test_compiled_cached_teacher_matches_repeated_uncached_gradients():
