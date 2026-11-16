@@ -34,6 +34,7 @@ def test_distributed_offline_matches_single_process(tmp_path, dual_scope, balanc
     cfg['private_probes']['rank']=2;cfg['data'].update(manifest=str(manifest),batch_counts=dict(text=3))
     if balanced:
         cfg['data'].update(_target_='chisel.balanced_catalog.BalancedCatalog', owner_count=2, batch_counts=dict(text=2))
+        cfg['distributed_audit'] = True
     cfg['training_audit_data']=dict(cfg['data'])
     cfg['preservation']['dual_scope']=dual_scope
     single=run(cfg)
@@ -52,3 +53,10 @@ def test_distributed_offline_matches_single_process(tmp_path, dual_scope, balanc
         if name.startswith('train_audit_'):
             assert abs(logged[name]-value)<1e-6,(name,logged[name],value)
     assert (tmp_path/'distributed/generation_000002.yaml').exists()
+    single_audit=json.loads((tmp_path/'single/audits/train_audit_00000002.json').read_text())
+    distributed_audit=json.loads((tmp_path/'distributed/audits/train_audit_00000002.json').read_text())
+    assert [r['sha256'] for r in distributed_audit['checkpoints']]==[r['sha256'] for r in single_audit['checkpoints']]
+    for actual, expected in zip(distributed_audit['checkpoints'],single_audit['checkpoints']):
+        for key,value in expected.items():
+            if isinstance(value,float): assert abs(actual[key]-value)<1e-6
+            else: assert actual[key]==value

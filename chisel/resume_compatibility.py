@@ -8,6 +8,7 @@ PERFORMANCE_FIELDS = {
     'private_probes.cache_bytes', 'cache_normalized_sensors',
     'compile_preservation_loss', 'teacher_cache_bytes',
     'checkpoint_io.cache_bytes', 'checkpoint_io.pin_memory',
+    'distributed_audit',
 }
 IGNORED = {'resume', 'output_dir', 'stop_step', 'resume_compatibility'}
 
