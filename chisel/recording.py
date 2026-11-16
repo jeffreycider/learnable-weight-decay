@@ -112,11 +112,15 @@ def restore():
             return
         path = str(config['resume']).format(rank=state.extras['rank'])
         saved = torch.load(path, map_location='cpu', weights_only=False)
-        ignored = {'resume', 'output_dir', 'stop_step'}
-        if {k: v for k, v in config.items() if k not in ignored} != {k: v for k, v in saved['config'].items() if k not in ignored}:
-            raise ValueError('resume configuration differs from checkpoint')
-        if saved.get('source_hashes', {}) != state.extras.get('source_hashes', {}):
-            raise ValueError('resume source hashes differ from checkpoint')
+        if config.get('resume_compatibility'):
+            from chisel.resume_compatibility import validate
+            validate(saved, config, state.extras.get('source_hashes', {}))
+        else:
+            ignored = {'resume', 'output_dir', 'stop_step'}
+            if {k: v for k, v in config.items() if k not in ignored} != {k: v for k, v in saved['config'].items() if k not in ignored}:
+                raise ValueError('resume configuration differs from checkpoint')
+            if saved.get('source_hashes', {}) != state.extras.get('source_hashes', {}):
+                raise ValueError('resume source hashes differ from checkpoint')
         state.model.load_state_dict(saved['model'])
         state.optimizer.load_state_dict(saved['optimizer'])
         state.train_batches.load_state_dict(saved['data'])
