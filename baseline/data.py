@@ -86,8 +86,10 @@ class FinewebStream:
         index, pos, batches = state['file_index'], state['pos'], state['batches']
         if not 0 <= index < len(self.files) or pos < 0 or pos % self.batch_size or batches < 0:
             raise ValueError('invalid data cursor')
+        # Rewinding a lookahead within one immutable shard must not reread it.
+        if index != self.file_index:
+            self.tokens = None
         self.file_index, self.pos, self.batches = index, pos, batches
-        self.tokens = None
 
 
 def distributed_data_generator(filename_pattern: str, batch_size: int, seq_len=1024):

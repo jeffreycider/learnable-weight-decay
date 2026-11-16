@@ -127,6 +127,10 @@ class CifarStream:
     def state_dict(self):
         return dict(step=self.step)
 
+    def preview(self):
+        """Next augmented batch without advancing or replacing prefetch workers."""
+        return self.replay(self.step)
+
     def load_state_dict(self, state):
         self.step, self.iterator = state['step'], None
 
