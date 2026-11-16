@@ -97,7 +97,7 @@ validation_data:
   seed: 610002
 compile_gpt_loss: true
 checkpoint_io:
-  _target_: chisel.checkpoint_io.CheckpointReader
+  _target_: chisel.current_replay.CurrentCheckpointReader
   prefetch: true
   pin_memory: false
   cache_bytes: 34359738368

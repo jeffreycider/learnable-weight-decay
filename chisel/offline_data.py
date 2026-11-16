@@ -52,11 +52,14 @@ class Catalog:
 
 
 class Replay:
-    def __init__(self, device, reader=None, compatibility=None, phase="next", parameter_dtype=None, batch_cache_size=64, model_options=None, data_options=None):
+    def __init__(self, device, reader=None, compatibility=None, phase="next", parameter_dtype=None, batch_cache_size=64, model_options=None, data_options=None, current_state_only=True):
         self.device, self.models, self.streams = device, {}, {}
         self.reader = reader or CheckpointReader()
         self.compatibility = compatibility
         self.phase, self.parameter_dtype = phase, parameter_dtype
+        self.current_state_only = phase == 'current' and current_state_only
+        if getattr(self.reader, 'current_only', False) and not self.current_state_only:
+            raise ValueError('projected current-weight records cannot reconstruct a full base step')
         self.batch_cache_size, self.batches = batch_cache_size, OrderedDict()
         self.model_options = model_options or {}
         self.data_options = data_options or {}
@@ -67,7 +70,8 @@ class Replay:
 
     def load(self, entry, record=None, batch_step=None):
         record = self.reader.read(entry) if record is None else record
-        record = map_tensors(record, lambda value: value.to(self.device, non_blocking=True, copy=True))
+        if not self.current_state_only:
+            record = map_tensors(record, lambda value: value.to(self.device, non_blocking=True, copy=True))
         if record['schema'] not in ('chisel-muonh-transition-v1', 'chisel-muonh-transition-v2'):
             raise ValueError('unsupported transition schema')
         verify_sources(record['source_hashes'], self.compatibility)
@@ -80,18 +84,23 @@ class Replay:
                     self.models[key].to(dtype=getattr(torch, self.parameter_dtype))
         model = self.models[key]
         model.load_state_dict(record['weights'])
-        for name, parameter in model.named_parameters():
-            parameter.grad = record['gradients'][name].to(parameter)
-        state = RunState(model=model, extras=dict(device=self.device))
-        optimizers()(config, state)
-        state.optimizer.load_state_dict(record['optimizer'])
-        hidden = state.optimizer.groups['hidden']
-        hidden.prepare()
-        selected = {id(p) for group in hidden.param_groups for p in group['params']}
-        parameters = {name: p for name, p in model.named_parameters() if id(p) in selected}
+        if self.current_state_only:
+            from chisel.current_replay import prepare
+            hidden, parameters = prepare(model, record, config, self.device)
+        else:
+            for name, parameter in model.named_parameters():
+                parameter.grad = record['gradients'][name].to(parameter)
+            state = RunState(model=model, extras=dict(device=self.device))
+            optimizers()(config, state)
+            state.optimizer.load_state_dict(record['optimizer'])
+            hidden = state.optimizer.groups['hidden']
+            hidden.prepare()
+            selected = {id(p) for group in hidden.param_groups for p in group['params']}
+            parameters = {name: p for name, p in model.named_parameters() if id(p) in selected}
         raw = {name: p.detach().clone() for name, p in parameters.items()}
         consolidated = {name: torch.zeros_like(p) for name, p in parameters.items()}
-        snapshot, directions, rates = observe(parameters, raw, consolidated, hidden, record['activity'])
+        activity = map_tensors(record['activity'], lambda value: value.to(self.device, copy=True))
+        snapshot, directions, rates = observe(parameters, raw, consolidated, hidden, activity)
         if self.phase == "next":
             state.optimizer.step()
         base = {name: p.detach().clone() for name, p in model.named_parameters()}
