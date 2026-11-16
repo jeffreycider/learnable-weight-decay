@@ -48,6 +48,9 @@ def preservation_gradient(model, original, edited, effective, batch, config, sta
     gradients = {name: torch.zeros_like(value) for name, value in effective.items()}
     metrics = dict(kl=0., logit_mse=0., ranking_loss=0., maximum_kl=0., rank_changed_positions=0,
                    greedy_changed_positions=0, evaluated_positions=0, maximum_logit_change=0.)
+    constraints = state.extras.get('logit_constraints')
+    if constraints is not None:
+        metrics['constraint_linear'] = 0.
     for start in range(0, len(inputs), microbatch):
         examples = inputs[start:start + microbatch]
         weight = len(examples) / len(inputs)
@@ -55,14 +58,23 @@ def preservation_gradient(model, original, edited, effective, batch, config, sta
             # Match the student's autograd signature so compilation uses the same
             # floating-point forward. Detach immediately; never backpropagate teacher.
             key = (identity, sample, start, len(examples)) if identity is not None else None
-            teacher = cache.get(key)
+            teacher = (constraints.teacher[start:start + len(examples)]
+                       if constraints is not None else cache.get(key))
             if teacher is None:
                 reference = original | {name: original[name].detach().requires_grad_() for name in effective}
                 teacher = forward(model, reference, examples).detach()
                 cache.put(key, teacher)
                 state.extras['training_forwards'] = state.extras.get('training_forwards', 0) + 1
             compiled_loss = state.extras.get('raw_logit_loss')
-            if compiled_loss is not None:
+            linear = teacher.new_zeros(())
+            if constraints is not None:
+                from chisel.compiled_preservation import constrained_logit_loss
+                forward_loss = state.extras.get('constrained_logit_loss', constrained_logit_loss)
+                mse, maximum, linear = forward_loss(model, edited, examples, teacher,
+                    constraints.multipliers[start:start + len(examples)])
+                zero = mse.new_zeros(())
+                terms = dict(mse=mse, logit_max=maximum, kl=zero, ranking=zero)
+            elif compiled_loss is not None:
                 mse, maximum = compiled_loss(model, edited, examples, teacher)
                 zero = mse.new_zeros(())
                 terms = dict(mse=mse, logit_max=maximum, kl=zero, ranking=zero)
@@ -74,7 +86,7 @@ def preservation_gradient(model, original, edited, effective, batch, config, sta
         ranking = ranking_objective(terms['ranking'], loss_config)
         loss = weight * (mse_weight * terms['mse'].mean()
                         + kl_weight * terms['kl'].mean()
-                        + loss_config['ranking_weight'] * ranking)
+                        + loss_config['ranking_weight'] * ranking + linear)
         cotangents = torch.autograd.grad(loss, tuple(effective.values()))
         for name, gradient in zip(effective, cotangents):
             gradients[name].add_(gradient.detach())
@@ -82,6 +94,8 @@ def preservation_gradient(model, original, edited, effective, batch, config, sta
         metrics['logit_mse'] += weight * terms['mse'].detach().mean().item()
         metrics['maximum_logit_change'] = max(metrics['maximum_logit_change'], terms['logit_max'].item())
         metrics['ranking_loss'] += weight * ranking.detach().item()
+        if constraints is not None:
+            metrics['constraint_linear'] += weight * linear.detach().item()
         metrics['maximum_kl'] = max(metrics['maximum_kl'], terms['kl'].detach().max().item())
         metrics['evaluated_positions'] += teacher.numel() // teacher.shape[-1]
         if measure_rankings:

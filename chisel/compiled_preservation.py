@@ -8,6 +8,13 @@ def raw_logit_loss(model, parameters, inputs, teacher):
     return difference.square().mean(), difference.detach().abs().amax()
 
 
+def constrained_logit_loss(model, parameters, inputs, teacher, multipliers):
+    student = torch.func.functional_call(model, parameters, (inputs,))
+    difference = student - teacher.detach()
+    return (difference.square().mean(), difference.detach().abs().amax(),
+            (multipliers.detach() * difference).mean())
+
+
 def configure(config, state):
     if not config.get('compile_preservation_loss', False):
         return
@@ -22,3 +29,6 @@ def configure(config, state):
             raise ValueError('compiled preservation requires raw MSE without KL/ranking measurements')
     state.extras['raw_logit_loss'] = torch.compile(raw_logit_loss,
         **config.get('compile_gpt_loss_kwargs', dict(fullgraph=True, dynamic=False)))
+    if config.get('fit_logit_constraints'):
+        state.extras['constrained_logit_loss'] = torch.compile(constrained_logit_loss,
+            **config.get('compile_gpt_loss_kwargs', dict(fullgraph=True, dynamic=False)))
