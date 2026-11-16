@@ -59,3 +59,36 @@ def test_zero_device_budget_uses_existing_cpu_store(tmp_path):
     assert not store.device_cache and store.device_bytes==0
     assert store.resident_bytes>0
     assert store.state_dict()['latest']
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason='CUDA required')
+def test_compiled_proposal_reuses_graphs_across_cached_checkpoint_updates(tmp_path):
+    from tests.harness.test_attention_augmented import fixture
+    from chisel.network import propose
+    from chisel.transfer import apply_edits
+    from chisel.preservation import group_norm_change
+    from torch._dynamo.utils import counters
+    torch.set_float32_matmul_precision('highest')
+    _, _, snapshot, _, actor, _ = fixture('cuda', torch.float32)
+    compiled = torch.compile(propose, fullgraph=True, dynamic=False)
+    cached = device_store(tmp_path/'cached', 1 << 24, 'cuda')
+    reference = make(tmp_path/'reference', 1 << 24, 'cuda')
+    graph_count = None
+    for step, key in enumerate(['a'*64, 'b'*64]*3):
+        results = []
+        for store in (cached, reference):
+            probes, optimizer = store.load(key, snapshot)
+            effective = apply_edits(snapshot, compiled(actor, probes, snapshot))[2]
+            loss = group_norm_change(snapshot, effective)
+            gradients = torch.autograd.grad(loss, list(probes.parameters()))
+            for parameter, gradient in zip(probes.parameters(), gradients):
+                parameter.grad = gradient
+            optimizer.step()
+            store.save(key, step, probes, optimizer)
+            results.append((cpu_copy(probes.state_dict()), cpu_copy(optimizer.state_dict())))
+        torch.testing.assert_close(results[0], results[1], rtol=0, atol=0)
+        if step == 1:
+            graph_count = counters['stats']['unique_graphs']
+        elif step > 1:
+            assert counters['stats']['unique_graphs'] == graph_count
+    assert cached.device_hits == 4
