@@ -53,6 +53,7 @@ def backward(config, state):
         metrics['effective_norm_reduction_pct'] -= 100 * effective_norm_change(snapshot, effective).item() / len(entries)
         metrics['private_gradient_norm'] += private_norm.item() / len(entries)
         metrics['weight_objective_evaluations'] += 1
+    metrics.update(store.cache_metrics())
     finish(state.model, metrics, state.extras['world_size'])
     metrics['shared_gradient_norm'] = torch.nn.utils.clip_grad_norm_(state.model.parameters(), config['gradient_clip']).item()
     state.extras['metrics'] = metrics
