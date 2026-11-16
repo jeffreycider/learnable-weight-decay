@@ -1,5 +1,6 @@
 """Offline Chisel task on the same loop; private probes and Adam state persist per checkpoint."""
 from pathlib import Path
+import io
 from collections import OrderedDict
 import torch
 from chisel.harness import build, locate
@@ -66,7 +67,12 @@ class ProbeStore:
                 self.cache[identity] = item
                 saved = cpu_copy(item[0])  # Optimizer loading must not alias the cached state.
             else:
-                saved = torch.load(self.latest[identity], map_location=self.device, weights_only=False)
+                path = self.latest[identity]
+                if self.config.get('buffered_load', False):
+                    with io.BytesIO(Path(path).read_bytes()) as buffer:
+                        saved = torch.load(buffer, map_location='cpu', weights_only=False)
+                else:
+                    saved = torch.load(path, map_location=self.device, weights_only=False)
                 self.disk_loads += 1
             probes.load_state_dict(saved['probes'])
             optimizer.load_state_dict(saved['optimizer'])

@@ -71,3 +71,22 @@ def test_metrics_distinguish_cache_hits_from_file_reloads(tmp_path):
     saved=store.state_dict()
     assert store.cache_metrics()['private_disk_writes']==3
     assert 'private_cache_hits' not in saved  # Diagnostics do not alter learned restart state.
+
+
+@pytest.mark.parametrize('device', ['cpu', pytest.param('cuda', marks=pytest.mark.skipif(not torch.cuda.is_available(), reason='CUDA required'))])
+def test_buffered_restore_preserves_probe_adam_update(tmp_path, device):
+    eager=make(tmp_path/'eager',0,device)
+    key='a'*64
+    update(eager,key,0)
+    update(eager,key,1)
+    saved=eager.state_dict()
+    buffered=make(tmp_path/'buffered',0,device)
+    buffered.config['buffered_load']=True
+    buffered.load_state_dict(saved)
+    before=Path(saved['latest'][key]).read_bytes()
+    a,ao=update(eager,key,2)
+    b,bo=update(buffered,key,2)
+    torch.testing.assert_close(a.state_dict(),b.state_dict(),rtol=0,atol=0)
+    torch.testing.assert_close(cpu_copy(ao.state_dict()),cpu_copy(bo.state_dict()),rtol=0,atol=0)
+    assert Path(saved['latest'][key]).read_bytes()==before
+    assert buffered.cache_metrics()['private_disk_loads']==1
