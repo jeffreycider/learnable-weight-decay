@@ -1,0 +1,3 @@
+extends: nanogpt_direct_zero.yaml
+output_dir: runs/nanogpt-direct-zero-smoke
+stop_step: 20
