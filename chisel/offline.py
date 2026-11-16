@@ -45,7 +45,7 @@ def initialize_fitted_probes(path, sha256):
 class ProbeStore:
     def __init__(self, root, config, device):
         self.root, self.config, self.device = Path(root), config, device
-        self.latest = {}
+        self.latest, self.measurements = {}, {}
         self.cache, self.resident_bytes = OrderedDict(), 0
         self.cache_bytes = config.get('cache_bytes', 0)
 
@@ -105,10 +105,11 @@ class ProbeStore:
     def state_dict(self):
         # The actor checkpoint commits these pointers. Older private versions remain valid.
         self.flush()
-        return dict(latest=dict(self.latest))
+        return dict(latest=dict(self.latest), measurements=dict(self.measurements))
 
     def load_state_dict(self, saved):
         self.latest = dict(saved['latest'])
+        self.measurements = dict(saved.get('measurements', {}))
         if any(not Path(path).is_file() for path in self.latest.values()):
             raise FileNotFoundError('checkpoint-private probe state is missing')
         self.cache.clear()
@@ -230,6 +231,8 @@ def backward(config, state):
             private_norm = torch.nn.utils.clip_grad_norm_(probes.parameters(), config['gradient_clip'])
             private_optimizer.step()
         store.save(entry['sha256'], state.step, probes, private_optimizer)
+        store.measurements[entry['sha256']] = dict(batch_step=batch_step,
+            sample_seed=measurement_config['preservation_sample_seed'], update_index=state.step)
         metrics['preservation_penalty'] += preservation_weight * dual.value * observed[constraint] / len(entries)
         metrics['fixed_preservation_penalty'] += (measurement_config['preservation']['logit_mse_weight'] * observed['logit_mse']
             + measurement_config['preservation']['ranking_weight'] * observed['ranking_loss']) / len(entries)

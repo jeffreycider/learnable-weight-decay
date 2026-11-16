@@ -32,7 +32,7 @@ def initialize(generation, sha256):
         if len(receipt['ranks']) != world:
             raise ValueError('this transition preserves world size')
         first, local = None, None
-        private, duals = {}, {}
+        private, duals, measurements = {}, {}, {}
         for rank, row in enumerate(receipt['ranks']):
             source = path.parent / row['path']
             if digest(source) != row['sha256']:
@@ -51,11 +51,13 @@ def initialize(generation, sha256):
                 return sampler.owner(identity, world) if hasattr(sampler, 'owner') else int(identity, 16) % world
             private.update({identity: value for identity, value in saved['extras']['private_probes']['latest'].items()
                             if owner(identity) == rank})
+            measurements.update({identity: value for identity, value in saved['extras']['private_probes'].get('measurements', {}).items()
+                                 if owner(identity) == rank})
             duals.update({identity: value for identity, value in saved['extras'].get('checkpoint_duals', {}).items()
                           if owner(identity) == rank})
         state.model.load_state_dict(local['model'])
         state.optimizer.load_state_dict(local['optimizer'])
-        state.extras['private_probes'].load_state_dict(dict(latest=private))
+        state.extras['private_probes'].load_state_dict(dict(latest=private, measurements=measurements))
         state.extras['dual'].load_state_dict(local['extras']['dual'])
         if 'checkpoint_duals' in state.extras:
             state.extras['checkpoint_duals'].load_state_dict(duals)
