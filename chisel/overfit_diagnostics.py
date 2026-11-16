@@ -62,6 +62,11 @@ def setup(kind='chisel', rank=16, initial='fitted'):
             raise ValueError(kind)
         state.extras['fit'] = dict(kind=kind, entry=entry, model=model, base=base,
                                   snapshot=snapshot, batch=batch, probes=probes, private=private)
+        if kind == 'chisel':
+            # Restoring file pointers alone cannot update the live objects held by
+            # the fitting closure and L-BFGS. Restore those same objects in place.
+            state.extras.setdefault('checkpointables', {}).update(
+                diagnostic_probes=probes, diagnostic_private_optimizer=private)
         state.backward = backward
         config['preservation_cache_key'] = (entry['sha256'], 'fixed-fitting-batch')
     return hook
