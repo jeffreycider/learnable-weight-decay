@@ -164,7 +164,8 @@ def setup():
             bank = CheckpointDuals(state.extras['dual'])
             state.extras['checkpoint_duals'] = bank
             state.extras.setdefault('checkpointables', {})['checkpoint_duals'] = bank
-        store = ProbeStore(Path(config['output_dir']) / 'private', config['private_probes'], state.extras['device'])
+        store = build(config.get('private_store', {'_target_': 'chisel.offline.ProbeStore'}),
+            root=Path(config['output_dir']) / 'private', config=config['private_probes'], device=state.extras['device'])
         state.extras['private_probes'] = store
         state.extras.setdefault('checkpointables', {}).update(private_probes=store, dual=state.extras['dual'])
     return hook

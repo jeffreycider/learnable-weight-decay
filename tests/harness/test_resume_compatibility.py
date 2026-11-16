@@ -58,3 +58,30 @@ def test_migration_rejects_unlisted_training_or_source_changes(tmp_path):
     config['resume_compatibility']['sha256']='wrong'
     with pytest.raises(ValueError,match='SHA256'):
         validate(saved,config,{'a.py':'new'})
+
+
+def test_device_cache_migration_preserves_full_offline_updates(tmp_path):
+    config=configuration(tmp_path)
+    reference=run(config)
+    config.update(output_dir=str(tmp_path/'prefix_device'),stop_step=2)
+    run(config)
+    config.update(output_dir=str(tmp_path/'migrated_device'),stop_step=4,
+        resume=str(tmp_path/'prefix_device/latest_rank0.pt'),
+        resume_compatibility=declaration(tmp_path,['private_store'],{}),
+        private_store=dict(_target_='chisel.device_probe_store.DeviceProbeStore',cache_bytes=1<<20))
+    actual=run(config)
+    torch.testing.assert_close(actual.model.state_dict(),reference.model.state_dict(),rtol=0,atol=0)
+    torch.testing.assert_close(actual.optimizer.state_dict(),reference.optimizer.state_dict(),rtol=0,atol=0)
+    assert actual.extras['checkpoint_duals'].state_dict()==reference.extras['checkpoint_duals'].state_dict()
+    a,b=actual.extras['private_probes'].state_dict(),reference.extras['private_probes'].state_dict()
+    for identity,path in a['latest'].items():
+        torch.testing.assert_close(torch.load(path,weights_only=False),torch.load(b['latest'][identity],weights_only=False),rtol=0,atol=0)
+    assert actual.extras['private_probes'].device_hits>0
+
+
+def test_private_store_migration_rejects_unqualified_implementations(tmp_path):
+    saved=dict(config={},source_hashes={})
+    config=dict(private_store={'_target_':'unqualified.OtherStore'},
+        resume_compatibility=declaration(tmp_path,['private_store'],{}))
+    with pytest.raises(ValueError,match='unqualified private store'):
+        validate(saved,config,{})
