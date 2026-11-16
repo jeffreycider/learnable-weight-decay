@@ -19,9 +19,12 @@ def worker(rank, rendezvous, config):
 
 
 @pytest.mark.parametrize("dual_scope", ["shared", "checkpoint"])
-def test_distributed_offline_matches_single_process(tmp_path, dual_scope):
+@pytest.mark.parametrize("balanced", [False, True])
+def test_distributed_offline_matches_single_process(tmp_path, dual_scope, balanced):
     source=source_config(tmp_path);run(source)
     entries=[json.loads(path.read_text()) for path in sorted((tmp_path/'source/trajectory').rglob('state.ready.json'))[1:4]]
+    if balanced:
+        entries = entries[:2]
     manifest=tmp_path/'manifest.yaml'
     manifest.write_text(yaml.safe_dump(dict(states=[dict(path=e['path'],sha256=e['sha256'],domain='text') for e in entries])))
     cfg=resolve('recipes/offline.yaml');cfg.update(train_steps=2,output_dir=str(tmp_path/'single'),microbatch_size=2,validation_data=None,compile_gpt_loss=False)
@@ -29,6 +32,8 @@ def test_distributed_offline_matches_single_process(tmp_path, dual_scope):
     cfg['model'].update(rank=2,width=16,depth=1,head_dim=4,expansion=2)
     cfg['private_probes']['cache_bytes']=1<<20
     cfg['private_probes']['rank']=2;cfg['data'].update(manifest=str(manifest),batch_counts=dict(text=3))
+    if balanced:
+        cfg['data'].update(_target_='chisel.balanced_catalog.BalancedCatalog', owner_count=2, batch_counts=dict(text=2))
     cfg['training_audit_data']=dict(cfg['data'])
     cfg['preservation']['dual_scope']=dual_scope
     single=run(cfg)
