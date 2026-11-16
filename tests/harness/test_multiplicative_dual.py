@@ -44,5 +44,6 @@ def test_stage_initialization_preserves_private_adam_and_pins_source(tmp_path):
     assert all(item['step'] == 1 for item in adam.state.values())
     with pytest.raises(ValueError, match='SHA256'):
         initialize_fitted_probes(str(source), 'bad')({}, state)
-    with pytest.raises(ValueError, match='exact resume'):
-        initialize_fitted_probes(str(source), sha256(source))({'resume': str(source)}, state)
+    before = new.state_dict()
+    initialize_fitted_probes('unused-on-resume', 'unused')({'resume': str(source)}, state)
+    assert new.state_dict() == before
