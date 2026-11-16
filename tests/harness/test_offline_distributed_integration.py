@@ -35,6 +35,9 @@ def test_distributed_offline_matches_single_process(tmp_path, dual_scope, balanc
     if balanced:
         cfg['data'].update(_target_='chisel.balanced_catalog.BalancedCatalog', owner_count=2, batch_counts=dict(text=2))
         cfg['distributed_audit'] = True
+        cfg['training_audit_inputs'] = 'last_fitted'
+        cfg['preservation_data'] = dict(policy='uniform_past',seed=19)
+        cfg['preservation_examples'] = 1
     cfg['training_audit_data']=dict(cfg['data'])
     cfg['preservation']['dual_scope']=dual_scope
     single=run(cfg)
@@ -45,6 +48,7 @@ def test_distributed_offline_matches_single_process(tmp_path, dual_scope, balanc
         for name,value in single.model.state_dict().items():
             torch.testing.assert_close(checkpoint['model'][name],value,rtol=1e-4,atol=2e-6)
         assert set(checkpoint['extras']['private_probes']['latest'])=={entry['sha256'] for entry in entries}
+        assert checkpoint['extras']['private_probes']['measurements'] == single.extras['private_probes'].measurements
         if dual_scope == 'checkpoint':
             expected = single.extras['checkpoint_duals'].state_dict()
             assert checkpoint['extras']['checkpoint_duals'] == expected

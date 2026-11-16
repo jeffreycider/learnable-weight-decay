@@ -166,9 +166,20 @@ def evaluate(every):
                 checkpoint_results = []
                 local_entries = [entry for entry in entries if owned(entry, state)] if parallel else entries
                 for entry in local_entries:
-                    model, base, snapshot, directions, rates, batch, _ = state.extras['replay'].load(entry)
+                    origin = config.get('training_audit_inputs', 'recorded') if prefix == 'train_audit' else 'recorded'
+                    if origin not in ('recorded', 'last_fitted'):
+                        raise ValueError('unknown training audit input policy')
+                    observation = {}
+                    if origin == 'last_fitted':
+                        observation = state.extras['private_probes'].measurements.get(entry['sha256'])
+                        if observation is None:
+                            raise ValueError('training audit has no fitted batch identity for checkpoint')
+                    model, base, snapshot, directions, rates, batch, _ = state.extras['replay'].load(
+                        entry, batch_step=observation.get('batch_step'))
                     probes, private_optimizer = state.extras['private_probes'].load(entry['sha256'], snapshot, base, actor=state.model)
                     measurement_config = config | config.get('domain_settings', {}).get(entry['domain'], {})
+                    if origin == 'last_fitted':
+                        measurement_config = measurement_config | {'preservation_sample_seed': observation['sample_seed']}
                     adaptation = {}
                     if prefix == 'validation' and config.get('validation_adaptation'):
                         from chisel.adaptation import fit
@@ -190,7 +201,7 @@ def evaluate(every):
                     totals['minimum_norm_reduction_pct'] = min(totals['minimum_norm_reduction_pct'], reduction)
                     actual = -100 * effective_norm_change(snapshot, effective).item()
                     checkpoint_results.append(dict(checkpoint=entry['path'], sha256=entry['sha256'],
-                        domain=entry['domain'], norm_reduction_pct=reduction,
+                        domain=entry['domain'], input_origin=origin, fitting_observation=observation, norm_reduction_pct=reduction,
                         effective_frobenius_reduction_pct=actual, **adaptation, **result))
                     totals['effective_frobenius_reduction_pct'] += actual / len(entries)
                     totals['minimum_effective_frobenius_reduction_pct'] = min(totals['minimum_effective_frobenius_reduction_pct'], actual)
