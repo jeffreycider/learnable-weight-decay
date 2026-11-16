@@ -1,7 +1,7 @@
-# Keep private probe state in memory between shared checkpoints
+# Private probe cache
 
-`private_probes.cache_bytes` enables a bounded CPU cache of checkpoint-private probe weights and Adam state. Updates remain private to their source checkpoint. Cache hits avoid shared-filesystem reloads and per-visit writes; an eviction writes the current private state before discarding it.
+Set `private_probes.cache_bytes` large enough for the checkpoint states revisited by each process. For FP32 Adam, each checkpoint needs approximately `24 * probe_rank * sum(rows + columns)` bytes for its read/write probe weights and Adam moments, plus scalar steps and metadata. A budget below the working set can force a disk write and reload on every visit.
 
-Creating an actor checkpoint flushes every dirty private entry before recording its file pointer. Distributed audits also flush every owner before sharing pointers. Older actor checkpoints continue to reference immutable older private files. A crash can lose updates after the last actor checkpoint, just as it can without this cache; it cannot silently pair that checkpoint with newer private weights.
+Offline logs now include `private_cache_hits`, `private_disk_loads`, `private_disk_writes`, `private_cache_evictions`, and `private_cache_bytes`. Counters cover the current process lifetime and reset when a process restarts; distributed logs sum across checkpoint owners. Bytes count resident tensor payloads, excluding Python objects and temporary copies. A fresh probe initialization is neither a cache hit nor a disk load. Checkpoint flushes count as writes even without eviction.
 
-The default is zero bytes, preserving immediate per-visit persistence. Cached tensors are copied on load so an optimizer cannot mutate a saved cache entry before `save`.
+The cache contains copied CPU tensors. Live optimizers receive independent state, and committed model checkpoints retain immutable private-state file pointers. Increasing the budget changes storage behavior only; weights, Adam steps, checkpoint sampling and objective remain unchanged. Use the existing hash-pinned resume compatibility mechanism to change the budget in a continuing run.

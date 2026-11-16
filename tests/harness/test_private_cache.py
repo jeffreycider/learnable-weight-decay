@@ -51,3 +51,23 @@ def test_dirty_eviction_is_durable_and_memory_is_bounded(tmp_path):
     assert Path(store.latest[first]).is_file()
     saved=store.state_dict()
     assert set(saved['latest'])=={first,second}
+
+
+def test_metrics_distinguish_cache_hits_from_file_reloads(tmp_path):
+    store=make(tmp_path,1<<20);first='a'*64;second='b'*64
+    update(store,first,0)
+    size=store.resident_bytes
+    store.cache_bytes=size
+    update(store,first,1)
+    assert store.cache_metrics()==dict(private_cache_hits=1,private_disk_loads=0,
+        private_disk_writes=0,private_cache_evictions=0,private_cache_bytes=size)
+    update(store,second,2)  # One-entry cache must write the learned first state.
+    update(store,first,3)   # Its next visit must read that file, then evict second.
+    metrics=store.cache_metrics()
+    assert metrics['private_cache_hits']==1 and metrics['private_disk_loads']==1
+    assert metrics['private_cache_evictions']==2
+    assert metrics['private_disk_writes']==len(list(tmp_path.glob('*.pt')))==2
+    assert metrics['private_cache_bytes']==size
+    saved=store.state_dict()
+    assert store.cache_metrics()['private_disk_writes']==3
+    assert 'private_cache_hits' not in saved  # Diagnostics do not alter learned restart state.

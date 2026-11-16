@@ -48,6 +48,7 @@ class ProbeStore:
         self.latest, self.measurements = {}, {}
         self.cache, self.resident_bytes = OrderedDict(), 0
         self.cache_bytes = config.get('cache_bytes', 0)
+        self.cache_hits = self.disk_loads = self.disk_writes = self.evictions = 0
 
     def load(self, identity, snapshot, reference=None, actor=None):
         with torch.random.fork_rng(devices=[]):
@@ -60,11 +61,13 @@ class ProbeStore:
         optimizer = build(self.config['optimizer'], params=probes.parameters())
         if identity in self.latest or identity in self.cache:
             if identity in self.cache:
+                self.cache_hits += 1
                 item = self.cache.pop(identity)
                 self.cache[identity] = item
                 saved = cpu_copy(item[0])  # Optimizer loading must not alias the cached state.
             else:
                 saved = torch.load(self.latest[identity], map_location=self.device, weights_only=False)
+                self.disk_loads += 1
             probes.load_state_dict(saved['probes'])
             optimizer.load_state_dict(saved['optimizer'])
         return probes, optimizer
@@ -84,12 +87,14 @@ class ProbeStore:
             oldest = next(iter(self.cache))
             self.flush_identity(oldest)
             self.resident_bytes -= self.cache.pop(oldest)[2]
+            self.evictions += 1
         self.cache[identity] = (payload, step, size)
         self.resident_bytes += size
 
     def persist(self, identity, payload, step):
         path = self.root / f'{identity}-{step:08d}.pt'
         save_atomic(payload, path)
+        self.disk_writes += 1
         self.latest[identity] = str(path.resolve())
 
     def flush_identity(self, identity):
@@ -101,6 +106,12 @@ class ProbeStore:
     def flush(self):
         for identity in self.cache:
             self.flush_identity(identity)
+
+    def cache_metrics(self):
+        # Process-lifetime counters; distributed callers sum across owners.
+        return dict(private_cache_hits=self.cache_hits, private_disk_loads=self.disk_loads,
+                    private_disk_writes=self.disk_writes, private_cache_evictions=self.evictions,
+                    private_cache_bytes=self.resident_bytes)
 
     def state_dict(self):
         # The actor checkpoint commits these pointers. Older private versions remain valid.
@@ -254,6 +265,7 @@ def backward(config, state):
         maximum_checkpoint_mse = max(maximum_checkpoint_mse, observed['logit_mse'])
         for name, value in observed.items():
             metrics[name] += value if name.endswith('positions') else value / len(entries)
+    metrics.update(store.cache_metrics())
     finish(state.model, metrics, state.extras['world_size'])
     maximum = torch.tensor([maximum_kl, maximum_logit_change, maximum_checkpoint_mse],
                            device=state.extras['device'], dtype=torch.float64)
