@@ -2,6 +2,7 @@ from pathlib import Path
 import torch
 import pytest
 from chisel.offline import ProbeStore
+from chisel.recording import cpu_copy
 
 
 def make(root, budget, device="cpu"):
@@ -23,7 +24,7 @@ def test_cache_matches_eager_save_and_checkpoint_flush_is_immutable(tmp_path, de
     for step in range(3):
         a,ao=update(cached,key,step);b,bo=update(eager,key,step)
         torch.testing.assert_close(a.state_dict(),b.state_dict(),rtol=0,atol=0)
-        torch.testing.assert_close(ao.state_dict(),bo.state_dict(),rtol=0,atol=0)
+        torch.testing.assert_close(cpu_copy(ao.state_dict()),cpu_copy(bo.state_dict()),rtol=0,atol=0)
     assert key not in cached.latest and not list((tmp_path/'cached').glob('*.pt'))
     state=cached.state_dict();path=Path(state['latest'][key]);before=path.read_bytes()
     assert path.stem.endswith('00000002')
@@ -37,7 +38,7 @@ def test_cache_matches_eager_save_and_checkpoint_flush_is_immutable(tmp_path, de
     a,ao=restored.load(key,{'w':{'raw':torch.ones(8,8)}})
     b,bo=cached.load(key,{'w':{'raw':torch.ones(8,8)}})
     torch.testing.assert_close(a.state_dict(),b.state_dict(),rtol=0,atol=0)
-    torch.testing.assert_close(ao.state_dict(),bo.state_dict(),rtol=0,atol=0)
+    torch.testing.assert_close(cpu_copy(ao.state_dict()),cpu_copy(bo.state_dict()),rtol=0,atol=0)
 
 
 def test_dirty_eviction_is_durable_and_memory_is_bounded(tmp_path):
