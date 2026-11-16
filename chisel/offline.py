@@ -135,7 +135,7 @@ def backward(config, state):
     constraint = config['preservation'].get('constraint_metric', 'kl')
     metrics = dict(norm_reduction_pct=0., consolidated_penalty=0., kl=0., logit_mse=0., ranking_loss=0.,
                    rank_changed_positions=0., greedy_changed_positions=0., evaluated_positions=0.)
-    maximum_kl = 0.
+    maximum_kl, maximum_logit_change, maximum_checkpoint_mse = 0., 0., 0.
     metrics['private_gradient_norm'] = 0.
     metrics.update(preservation_penalty=0., fixed_preservation_penalty=0., preservation_multiplier=0.)
     metrics.update(private_first_objective=0., private_last_objective=0.,
@@ -198,10 +198,13 @@ def backward(config, state):
         metrics['norm_reduction_pct'] -= 100 * norm_change.detach().item() / len(entries)
         metrics['consolidated_penalty'] += storage.detach().item() / len(entries)
         maximum_kl = max(maximum_kl, observed.pop('maximum_kl', 0.))
+        maximum_logit_change = max(maximum_logit_change, observed.pop('maximum_logit_change', 0.))
+        maximum_checkpoint_mse = max(maximum_checkpoint_mse, observed['logit_mse'])
         for name, value in observed.items():
             metrics[name] += value if name.endswith('positions') else value / len(entries)
     finish(state.model, metrics, state.extras['world_size'])
-    maximum = torch.tensor(maximum_kl, device=state.extras['device'], dtype=torch.float64)
+    maximum = torch.tensor([maximum_kl, maximum_logit_change, maximum_checkpoint_mse],
+                           device=state.extras['device'], dtype=torch.float64)
     if state.extras['world_size'] > 1:
         dist.all_reduce(maximum, op=dist.ReduceOp.MAX)
     shared_norm = torch.nn.utils.clip_grad_norm_(state.model.parameters(), config['gradient_clip'])
@@ -209,7 +212,8 @@ def backward(config, state):
         + config['consolidated_penalty'] * metrics['consolidated_penalty']
         + metrics['preservation_penalty'] + metrics['fixed_preservation_penalty'])
     metrics.update(curriculum)
-    metrics.update(maximum_kl=maximum.item(),
+    metrics.update(maximum_kl=maximum[0].item(), maximum_logit_change=maximum[1].item(),
+                   maximum_checkpoint_logit_mse=maximum[2].item(),
                    preservation_tolerance=dual.tolerance, shared_gradient_norm=shared_norm.item(),
                    private_optimizer_steps=len(entries) * config.get('private_steps', 1))
     if constraint == 'kl':
