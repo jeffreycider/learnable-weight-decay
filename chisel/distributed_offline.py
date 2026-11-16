@@ -13,6 +13,7 @@ def owned(entry, state):
 
 def synchronize_private_store(state):
     """Audits need the trained private probes from every checkpoint owner."""
+    state.extras['private_probes'].flush()
     world = state.extras['world_size']
     if world == 1:
         return
