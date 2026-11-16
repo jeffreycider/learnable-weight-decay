@@ -47,7 +47,7 @@ def preservation_gradient(model, original, edited, effective, batch, config, sta
     measure_rankings = config.get('measure_rankings', True)
     gradients = {name: torch.zeros_like(value) for name, value in effective.items()}
     metrics = dict(kl=0., logit_mse=0., ranking_loss=0., maximum_kl=0., rank_changed_positions=0,
-                   greedy_changed_positions=0, evaluated_positions=0)
+                   greedy_changed_positions=0, evaluated_positions=0, maximum_logit_change=0.)
     for start in range(0, len(inputs), microbatch):
         examples = inputs[start:start + microbatch]
         weight = len(examples) / len(inputs)
@@ -74,6 +74,7 @@ def preservation_gradient(model, original, edited, effective, batch, config, sta
             gradients[name].add_(gradient.detach())
         metrics['kl'] += weight * terms['kl'].detach().mean().item()
         metrics['logit_mse'] += weight * terms['mse'].detach().mean().item()
+        metrics['maximum_logit_change'] = max(metrics['maximum_logit_change'], terms['logit_max'].item())
         metrics['ranking_loss'] += weight * ranking.detach().item()
         metrics['maximum_kl'] = max(metrics['maximum_kl'], terms['kl'].detach().max().item())
         metrics['evaluated_positions'] += student.numel() // student.shape[-1]
@@ -94,19 +95,31 @@ def preservation_gradient(model, original, edited, effective, batch, config, sta
 @torch.no_grad()
 def audit(model, original, edited, batch, config, state):
     inputs = sampled_inputs(batch, config)
-    metrics = dict(kl=0., maximum_kl=0., rank_changed_positions=0, greedy_changed_positions=0, evaluated_positions=0)
+    metrics = dict(kl=0., maximum_kl=0., rank_changed_positions=0, greedy_changed_positions=0, evaluated_positions=0,
+                   logit_mse=0., maximum_logit_change=0.)
     for start in range(0, len(inputs), config['microbatch_size']):
         examples = inputs[start:start + config['microbatch_size']]
         with autocast(config, state):
             teacher = state.extras['logits_forward'](model, original, examples)
             student = state.extras['logits_forward'](model, edited, examples)
-        terms = prediction_terms(student, teacher, config['preservation']['top_k'], config['preservation']['margin_fraction'])
+        terms = prediction_terms(student, teacher, config['preservation']['top_k'], config['preservation']['margin_fraction'],
+                                 center_logits=config['preservation'].get('center_logits', True),
+                                 compute_kl=config.get('measure_kl', True), compute_ranking=False)
         metrics['kl'] += len(examples) / len(inputs) * terms['kl'].mean().item()
+        metrics['logit_mse'] += len(examples) / len(inputs) * terms['mse'].mean().item()
+        metrics['maximum_logit_change'] = max(metrics['maximum_logit_change'], terms['logit_max'].item())
         metrics['maximum_kl'] = max(metrics['maximum_kl'], terms['kl'].max().item())
-        changes = ranking_changes(student, teacher, config['preservation']['top_k'])
-        metrics['rank_changed_positions'] += changes['rank_changed'].item()
-        metrics['greedy_changed_positions'] += changes['greedy_changed'].item()
-        metrics['evaluated_positions'] += changes['positions']
+        if config.get('measure_rankings', True):
+            changes = ranking_changes(student, teacher, config['preservation']['top_k'])
+            metrics['rank_changed_positions'] += changes['rank_changed'].item()
+            metrics['greedy_changed_positions'] += changes['greedy_changed'].item()
+        metrics['evaluated_positions'] += student.numel() // student.shape[-1]
+    if not config.get('measure_kl', True):
+        metrics.pop('kl')
+        metrics.pop('maximum_kl')
+    if not config.get('measure_rankings', True):
+        metrics.pop('rank_changed_positions')
+        metrics.pop('greedy_changed_positions')
     return metrics
 
 
@@ -136,7 +149,8 @@ def evaluate(every):
                     raise ValueError('offline training and validation checkpoints overlap')
                 totals = dict(norm_reduction_pct=0., minimum_norm_reduction_pct=float('inf'),
                               effective_frobenius_reduction_pct=0., minimum_effective_frobenius_reduction_pct=float('inf'), kl=0., maximum_kl=0.,
-                              rank_changed_positions=0, greedy_changed_positions=0, evaluated_positions=0)
+                              rank_changed_positions=0, greedy_changed_positions=0, evaluated_positions=0,
+                              logit_mse=0., maximum_logit_change=0.)
                 checkpoint_results = []
                 for entry in entries:
                     model, base, snapshot, directions, rates, batch, _ = state.extras['replay'].load(entry)
@@ -165,12 +179,20 @@ def evaluate(every):
                         effective_frobenius_reduction_pct=actual, **adaptation, **result))
                     totals['effective_frobenius_reduction_pct'] += actual / len(entries)
                     totals['minimum_effective_frobenius_reduction_pct'] = min(totals['minimum_effective_frobenius_reduction_pct'], actual)
-                    totals['kl'] += result.pop('kl') / len(entries)
-                    totals['maximum_kl'] = max(totals['maximum_kl'], result.pop('maximum_kl'))
+                    totals['kl'] += result.pop('kl', 0.) / len(entries)
+                    totals['maximum_kl'] = max(totals['maximum_kl'], result.pop('maximum_kl', 0.))
+                    totals['logit_mse'] += result.pop('logit_mse') / len(entries)
+                    totals['maximum_logit_change'] = max(totals['maximum_logit_change'], result.pop('maximum_logit_change'))
                     for name, value in result.items():
                         totals[name] += value
                 atomic_json(Path(config['output_dir']) / 'audits' / f'{prefix}_{state.step + 1:08d}.json',
                             dict(shared_updates=state.step + 1, checkpoints=checkpoint_results))
+                if not config.get('measure_kl', True):
+                    totals.pop('kl')
+                    totals.pop('maximum_kl')
+                if not config.get('measure_rankings', True):
+                    totals.pop('rank_changed_positions')
+                    totals.pop('greedy_changed_positions')
                 state.extras.setdefault('metrics', {}).update({prefix + '_' + name: value for name, value in totals.items()})
         finally:
             state.model.train()

@@ -22,6 +22,7 @@ def test_dual_mse_cotangent_matches_full_autograd_without_kl_or_rankings():
     expected, = torch.autograd.grad(5 * (student-teacher).square().mean(), effective['weight'])
     torch.testing.assert_close(gradients['weight'], expected, atol=1e-12, rtol=1e-10)
     assert 'kl' not in metrics and 'rank_changed_positions' not in metrics
+    assert metrics['maximum_logit_change'] == (student-teacher).abs().max().item()
 
 
 def test_full_offline_loop_updates_dual_from_mse_and_accounts_for_loss(tmp_path, monkeypatch):

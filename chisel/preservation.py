@@ -42,6 +42,7 @@ def prediction_terms(student, teacher, top_k=100, margin_fraction=.5, ranking_po
         return value.pow(ranking_power)
     student, teacher = student.flatten(0, -2), teacher.detach().flatten(0, -2)
     difference = student - teacher
+    logit_max = difference.detach().abs().amax()
     centered = difference - difference.mean(-1, keepdim=True)
     mse = (centered if center_logits else difference).square().mean(-1)
     kl = torch.zeros_like(mse)
@@ -52,7 +53,7 @@ def prediction_terms(student, teacher, top_k=100, margin_fraction=.5, ranking_po
         delta = delta - (probability * delta).sum(-1, keepdim=True)
         kl = torch.log1p((probability * torch.expm1(delta)).sum(-1)).clamp_min(0)
     if not compute_ranking:
-        return dict(mse=mse, kl=kl, ranking=torch.zeros_like(mse))
+        return dict(mse=mse, kl=kl, ranking=torch.zeros_like(mse), logit_max=logit_max)
     k = min(top_k, teacher.shape[-1])
     values, indices = teacher.topk(k, dim=-1, sorted=True)
     ordered = student.gather(-1, indices)
@@ -86,7 +87,7 @@ def prediction_terms(student, teacher, top_k=100, margin_fraction=.5, ranking_po
     rank_loss = torch.where(gaps > 0, violations, 0).sum(-1) / max(1, k - 1)
     if k < teacher.shape[-1]:
         rank_loss = rank_loss + boundary_loss
-    return dict(mse=mse, kl=kl, ranking=rank_loss)
+    return dict(mse=mse, kl=kl, ranking=rank_loss, logit_max=logit_max)
 
 
 def ranking_changes(student, teacher, top_k=100):
