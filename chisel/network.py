@@ -33,7 +33,7 @@ class PrivateProbes(nn.Module):
         return torch.stack(tokens)
 
     def decode(self, codes, snapshot):
-        gains = codes['gains'] if isinstance(codes, dict) else None
+        gains = codes.get('gains') if isinstance(codes, dict) else None
         normalize_gains = codes.get('normalize_gains', False) if isinstance(codes, dict) else False
         codes = codes['low_rank'] if isinstance(codes, dict) else codes
         result = {}
@@ -61,7 +61,8 @@ class PrivateProbes(nn.Module):
 
 
 class Chisel(nn.Module):
-    def __init__(self, rank, width, depth, full_rank_gains=False, normalize_gains=False, **block_args):
+    def __init__(self, rank, width, depth, full_rank_gains=False, normalize_gains=False,
+                 attention_branch=False, **block_args):
         super().__init__()
         if normalize_gains and not full_rank_gains:
             raise ValueError('gain normalization requires the full-rank gain head')
@@ -77,6 +78,10 @@ class Chisel(nn.Module):
         if self.gain_proj is not None:
             nn.init.zeros_(self.gain_proj.weight)
             nn.init.zeros_(self.gain_proj.bias)
+        self.attention_proj = nn.Linear(width, 2 * rank * rank) if attention_branch else None
+        if self.attention_proj is not None:
+            nn.init.zeros_(self.attention_proj.weight)
+            nn.init.zeros_(self.attention_proj.bias)
 
     def forward(self, tokens):
         hidden = self.embed(tokens.unsqueeze(0))
@@ -84,11 +89,22 @@ class Chisel(nn.Module):
             hidden = block(hidden)
         hidden = self.norm(hidden)
         codes = self.proj(hidden)[0].reshape(-1, 2, self.rank, self.rank)
-        if self.gain_proj is None:
+        if self.gain_proj is None and self.attention_proj is None:
             return codes
-        gains = self.gain_proj(hidden)[0].reshape(-1, 2, 1 + 2 * self.rank)
-        return dict(low_rank=codes, gains=gains, normalize_gains=self.normalize_gains)
+        result = dict(low_rank=codes, normalize_gains=self.normalize_gains)
+        if self.gain_proj is not None:
+            result['gains'] = self.gain_proj(hidden)[0].reshape(-1, 2, 1 + 2 * self.rank)
+        if self.attention_proj is not None:
+            result['attention'] = self.attention_proj(hidden)[0].reshape(-1, 2, self.rank, self.rank)
+        return result
 
 
 def propose(actor, probes, snapshot):
-    return probes.decode(actor(probes.tokens(snapshot)), snapshot)
+    codes = actor(probes.tokens(snapshot))
+    edits = probes.decode(codes, snapshot)
+    if isinstance(codes, dict) and 'attention' in codes:
+        from chisel.attention_identity_fit import decode
+        attention = decode(codes['attention'], probes, snapshot)
+        for name in edits:
+            edits[name]['raw'] = edits[name]['raw'] + attention[name]['raw']
+    return edits

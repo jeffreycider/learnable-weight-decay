@@ -1,0 +1,11 @@
+extends: offline.yaml
+output_dir: runs/chisel-attention-augmented-offline
+model:
+  attention_branch: true
+  full_rank_gains: true
+  normalize_gains: true
+replay:
+  _target_: chisel.attention_identity_cohort.AttentionReplay
+proposal_function: chisel.network.propose
+# Ordinary logit-preservation training; never inject the norm-only diagnostic task.
+training_audit_inputs: last_fitted
