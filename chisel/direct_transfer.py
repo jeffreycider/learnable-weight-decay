@@ -7,7 +7,7 @@ from chisel.muonh import MuonH, sphere
 
 class DirectTransfer:
     def __init__(self, base, state, config, optimizer_group, schedule,
-                 lookahead, gradient_floor, preview_zero=False):
+                 lookahead, gradient_floor, gradient_relative_floor=1e-6, preview_zero=False):
         self.base, self.state, self.config = base, state, config
         self.groups = base.groups
         self.hidden = self.groups[optimizer_group]
@@ -19,6 +19,7 @@ class DirectTransfer:
         self.consolidated = {name: torch.zeros_like(p) for name, p in self.parameters.items()}
         self.schedule, self.lookahead = schedule, locate(lookahead)
         self.gradient_floor, self.preview_zero = gradient_floor, preview_zero
+        self.gradient_relative_floor = gradient_relative_floor
         self.counts = dict(ordinary_batches=0, lookahead_batches=0, ordinary_microbatches=0,
                            lookahead_microbatches=0, ordinary_tokens=0, lookahead_tokens=0)
 
@@ -74,7 +75,8 @@ class DirectTransfer:
             self.counts['lookahead_tokens'] += count
             gradients = {n: transfer_gradient(self.raw[n], directions[p], rates[p], q[n])
                          for n, p in self.parameters.items()}
-            edits, hnorm, unorm = normalized_transfer(self.raw, proposals, gradients, size, self.gradient_floor)
+            floor = max(self.gradient_floor, self.gradient_relative_floor * joint_norm(q.values()).item())
+            edits, hnorm, unorm = normalized_transfer(self.raw, proposals, gradients, size, floor)
             metrics.update(observed, transfer_gradient_norm=hnorm.item(), base_displacement_norm=unorm.item(),
                            transfer_norm=joint_norm(edits.values()).item())
             if size != 0:

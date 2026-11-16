@@ -47,6 +47,7 @@ def test_zero_transfer_is_bitwise_baseline_including_optimizer_and_rng(tmp_path)
 
 def test_nonzero_transfer_and_terminal_identity(tmp_path):
     config = tiny_config(tmp_path)
+    config['direct_transfer']['schedule']['kwargs']['terminal_identity'] = True
     result = run(config)
     opt = result.optimizer
     assert opt.counts['ordinary_batches'] == 5
@@ -104,3 +105,31 @@ def test_preview_uses_complete_successor_not_only_hidden_matrices(tmp_path):
     config['expected_successors'] = str(path)
     config['direct_transfer']['lookahead'] = __name__ + '.checked_lookahead'
     run(config)
+
+
+def test_branch_baseline_checkpoint_zero_is_identical_to_continuation(tmp_path):
+    baseline = tiny_config(tmp_path / 'base', 'nanogpt_muonh_40gb.yaml')
+    baseline['post_optimizer'] = [dict(name='chisel.recording.checkpoint', hyperparams=dict(every=2))]
+    full = run(baseline)
+    config = tiny_config(tmp_path / 'branch', 'nanogpt_direct_zero.yaml')
+    config['baseline_checkpoint'] = str(tmp_path / 'base/run/checkpoint_000002_rank0.pt')
+    branch = run(config)
+    assert_tree_equal(full.model.state_dict(), branch.model.state_dict())
+    assert_tree_equal(full.optimizer.state_dict(), branch.optimizer.base.state_dict())
+    assert_tree_equal(full.train_batches.state_dict(), branch.train_batches.state_dict())
+    assert branch.optimizer.counts['ordinary_batches'] == 3
+
+
+def test_radius_multiplier_only_changes_muonh_matrices(tmp_path):
+    from chisel.harness import RunState, inject, bind_sites
+    base = tiny_config(tmp_path / 'base', 'nanogpt_muonh_40gb.yaml')
+    scaled = tiny_config(tmp_path / 'scaled', 'nanogpt_muonh_40gb.yaml')
+    scaled['hyperball_radius_multiplier'] = .75
+    states = []
+    for config in (base, scaled):
+        state = RunState()
+        inject(bind_sites(config)['setup'], config, state)
+        states.append(state)
+    eligible = {id(p) for group in states[1].optimizer.groups['hidden'].param_groups for p in group['params']}
+    for plain, changed in zip(states[0].model.parameters(), states[1].model.parameters()):
+        torch.testing.assert_close(changed, plain * (.75 if id(changed) in eligible else 1.), rtol=0, atol=0)

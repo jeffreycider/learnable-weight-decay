@@ -33,7 +33,7 @@ def normalized_transfer(raw, proposals, gradients, size, gradient_floor):
     return {name: gradient * scale for name, gradient in gradients.items()}, gradient_norm, step_norm
 
 
-def edit_schedule(step, total, size, start_step=0, ramp_steps=0, interval=1, terminal_identity=True):
+def edit_schedule(step, total, size, start_step=0, ramp_steps=0, interval=1, terminal_identity=False):
     """Zero-indexed start; optional linear ramp, then a fixed transfer/base-step ratio."""
     if interval < 1 or ramp_steps < 0 or start_step < 0:
         raise ValueError('invalid edit schedule')

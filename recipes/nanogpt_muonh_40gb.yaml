@@ -1,6 +1,17 @@
 extends: nanogpt.yaml
 output_dir: runs/nanogpt-muonh-40gb
 microbatch_size: 8
+hyperball_radius_multiplier: 1.0
+baseline_checkpoint: null
+setup:
+- name: chisel.training.initialize
+- name: chisel.training.model
+- name: chisel.training.optimizers
+- name: chisel.training.data
+- name: chisel.direct_setup.radius
+- name: chisel.recording.open_run
+- name: chisel.direct_setup.baseline_checkpoint
+- name: chisel.recording.restore
 post_optimizer:
 - name: chisel.evaluation.evaluate
   hyperparams:
