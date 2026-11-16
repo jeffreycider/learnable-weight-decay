@@ -8,6 +8,14 @@ from chisel.storage import sha256
 from tests.harness.test_checkpoint_duals import configuration
 
 
+def test_resume_does_not_rerun_stage_initialization(tmp_path):
+    from chisel.offline import initialize_shared_weights, initialize_fitted_probes
+    from chisel.harness import RunState
+    for constructor in [initialize_shared_weights, initialize_fitted_probes]:
+        constructor(str(tmp_path/'unused-initialization.pt'),'unused')(
+            dict(resume='committed-checkpoint.pt'),RunState())
+
+
 def declaration(tmp_path, fields, changes):
     path=tmp_path/'compatibility.yaml'
     path.write_text(yaml.safe_dump(dict(configuration_fields=fields,source_changes=changes)))

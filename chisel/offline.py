@@ -21,7 +21,7 @@ def initialize_shared_weights(path, sha256):
     def hook(config, state):
         from chisel.storage import sha256 as digest
         if config.get('resume'):
-            raise ValueError('choose either shared initialization or exact resume')
+            return  # Restore the committed training state after setup instead.
         if digest(path) != sha256:
             raise ValueError('shared initialization checkpoint SHA256 mismatch')
         saved = torch.load(path, map_location='cpu', weights_only=False)
@@ -34,7 +34,7 @@ def initialize_fitted_probes(path, sha256):
     def hook(config, state):
         from chisel.storage import sha256 as digest
         if config.get('resume'):
-            raise ValueError('choose either staged initialization or exact resume')
+            return  # The saved recipe retains its original stage initialization.
         if digest(path) != sha256:
             raise ValueError('private initialization checkpoint SHA256 mismatch')
         saved = torch.load(path, map_location='cpu', weights_only=False)
