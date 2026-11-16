@@ -19,13 +19,17 @@ def example(device='cpu', dtype=torch.float64, causal=True):
 
 
 @pytest.mark.parametrize('causal',[True,False])
-def test_finite_edits_preserve_logits_with_nonzero_bias(causal):
+@pytest.mark.parametrize('parameterization',['bounded_symmetric','exponential_consolidated'])
+def test_finite_edits_preserve_logits_with_nonzero_bias(causal, parameterization):
     model,base,snapshot,actor,probes = example(causal=causal)
     with torch.no_grad(): actor.proj.weight.normal_(std=.2)
-    edits = propose(actor,probes,snapshot,base,8)
+    edits = propose(actor,probes,snapshot,base,8,parameterization)
     bounded = bound_edits(snapshot,edits,1e-8)
     for n in edits:
         torch.testing.assert_close(bounded[n]['raw'],edits[n]['raw'],rtol=0,atol=0)
+        torch.testing.assert_close(bounded[n]['consolidated'],edits[n]['consolidated'],rtol=0,atol=0)
+        if parameterization == 'exponential_consolidated':
+            assert edits[n]['raw'].count_nonzero() == 0
     effective = apply_edits(snapshot,edits)[2]
     inputs = torch.randint(0,32,(3,7))
     before = torch.func.functional_call(model,base,(inputs,))
@@ -36,13 +40,14 @@ def test_finite_edits_preserve_logits_with_nonzero_bias(causal):
             torch.testing.assert_close(effective[n],base[n],atol=0,rtol=0)
 
 
-def test_zero_heads_learn_norm_reduction_without_analytic_initialization():
+@pytest.mark.parametrize('parameterization',['bounded_symmetric','exponential_consolidated'])
+def test_zero_heads_learn_norm_reduction_without_analytic_initialization(parameterization):
     model,base,snapshot,actor,probes = example()
     parameters = list(actor.parameters())+list(probes.parameters())
     optimizer = torch.optim.Adam(parameters,lr=.01)
     for step in range(30):
         optimizer.zero_grad()
-        effective = apply_edits(snapshot,propose(actor,probes,snapshot,base,8))[2]
+        effective = apply_edits(snapshot,propose(actor,probes,snapshot,base,8,parameterization))[2]
         loss = group_norm_change(snapshot,effective)
         loss.backward()
         if step==0:
@@ -52,15 +57,17 @@ def test_zero_heads_learn_norm_reduction_without_analytic_initialization():
     assert loss < -.001
     assert probes.write_left[2].grad.norm()>0
     # A remote MLP's observations influence this attention rewrite through global attention.
-    before = propose(actor,probes,snapshot,base,8)['blocks.0.attn.v.weight']['raw']
+    bank = 'consolidated' if parameterization == 'exponential_consolidated' else 'raw'
+    before = propose(actor,probes,snapshot,base,8,parameterization)['blocks.0.attn.v.weight'][bank]
     snapshot['blocks.1.mlp.fc.weight']['gradient'].normal_()
-    after = propose(actor,probes,snapshot,base,8)['blocks.0.attn.v.weight']['raw']
+    after = propose(actor,probes,snapshot,base,8,parameterization)['blocks.0.attn.v.weight'][bank]
     assert (after-before).norm()>1e-10
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(),reason='CUDA required')
 @pytest.mark.parametrize('snapshot_metadata',[False,True])
-def test_cuda_compilation_preservation_gradient_and_reuse(snapshot_metadata):
+@pytest.mark.parametrize('parameterization',['bounded_symmetric','exponential_consolidated'])
+def test_cuda_compilation_preservation_gradient_and_reuse(snapshot_metadata,parameterization):
     from torch._dynamo.utils import counters
     torch.set_float32_matmul_precision('highest')
     model,base,snapshot,actor,probes = example('cuda',torch.float32)
@@ -74,7 +81,7 @@ def test_cuda_compilation_preservation_gradient_and_reuse(snapshot_metadata):
     params=list(actor.parameters())+list(probes.parameters())
     def compute(fn):
         args=(actor,probes,snapshot) if snapshot_metadata else (actor,probes,snapshot,base,8)
-        effective=apply_edits(snapshot,fn(*args))[2]
+        effective=apply_edits(snapshot,fn(*args,parameterization=parameterization))[2]
         loss=group_norm_change(snapshot,effective)
         gradients=torch.autograd.grad(loss,params,allow_unused=True)
         return effective,gradients
