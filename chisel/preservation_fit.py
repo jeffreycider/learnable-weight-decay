@@ -61,10 +61,16 @@ def preservation_gradient(model, original, edited, effective, batch, config, sta
                 teacher = forward(model, reference, examples).detach()
                 cache.put(key, teacher)
                 state.extras['training_forwards'] = state.extras.get('training_forwards', 0) + 1
-            student = forward(model, edited, examples)
-        terms = prediction_terms(student, teacher, loss_config['top_k'], loss_config['margin_fraction'],
-            loss_config.get('ranking_power', 2), loss_config.get('center_logits', True),
-            compute_kl=measure_kl, compute_ranking=loss_config['ranking_weight'] != 0)
+            compiled_loss = state.extras.get('raw_logit_loss')
+            if compiled_loss is not None:
+                mse, maximum = compiled_loss(model, edited, examples, teacher)
+                zero = mse.new_zeros(())
+                terms = dict(mse=mse, logit_max=maximum, kl=zero, ranking=zero)
+            else:
+                student = forward(model, edited, examples)
+                terms = prediction_terms(student, teacher, loss_config['top_k'], loss_config['margin_fraction'],
+                    loss_config.get('ranking_power', 2), loss_config.get('center_logits', True),
+                    compute_kl=measure_kl, compute_ranking=loss_config['ranking_weight'] != 0)
         ranking = ranking_objective(terms['ranking'], loss_config)
         loss = weight * (mse_weight * terms['mse'].mean()
                         + kl_weight * terms['kl'].mean()
@@ -77,7 +83,7 @@ def preservation_gradient(model, original, edited, effective, batch, config, sta
         metrics['maximum_logit_change'] = max(metrics['maximum_logit_change'], terms['logit_max'].item())
         metrics['ranking_loss'] += weight * ranking.detach().item()
         metrics['maximum_kl'] = max(metrics['maximum_kl'], terms['kl'].detach().max().item())
-        metrics['evaluated_positions'] += student.numel() // student.shape[-1]
+        metrics['evaluated_positions'] += teacher.numel() // teacher.shape[-1]
         if measure_rankings:
             changes = ranking_changes(student.detach(), teacher, loss_config['top_k'])
             metrics['rank_changed_positions'] += changes['rank_changed'].item()

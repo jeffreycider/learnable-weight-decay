@@ -145,6 +145,7 @@ def test_compiled_identity_preservation_uses_matching_arithmetic():
     from chisel.preservation_fit import preservation_gradient,logits
     from chisel.harness import RunState
     model=CifarGPT(32,2,4,'mean',head_dim=8,causal=False,learned_qk_scale=True,expansion=2).cuda().float()
+    torch.nn.init.normal_(model.proj.weight, std=.1)
     base={n:p.detach().clone() for n,p in model.named_parameters()}
     effective={n:p.clone().requires_grad_() for n,p in base.items() if n.startswith('blocks.') and p.ndim==2}
     state=RunState(extras=dict(device=torch.device('cuda'),logits_forward=torch.compile(logits,fullgraph=True,dynamic=False)))
@@ -152,7 +153,9 @@ def test_compiled_identity_preservation_uses_matching_arithmetic():
     batch=dict(inputs=torch.randn(8,3,32,32,device='cuda'))
     gradients,metrics=preservation_gradient(model,base,base|effective,effective,batch,config,state,1e4)
     assert metrics['kl']==0 and metrics['logit_mse']==0 and metrics['rank_changed_positions']==0,metrics
-    assert all(torch.count_nonzero(g)==0 for g in gradients.values())
+    # Centering the double-precision KL leaves roundoff in its zero-loss derivative.
+    maximum_gradient = max(g.abs().max().item() for g in gradients.values())
+    assert maximum_gradient < 1e-9, maximum_gradient
 
 
 def test_compiled_cached_teacher_matches_repeated_uncached_gradients():
@@ -160,6 +163,7 @@ def test_compiled_cached_teacher_matches_repeated_uncached_gradients():
     from chisel.teacher_cache import TeacherCache
     from chisel.harness import RunState
     model=CifarGPT(32,2,4,'mean',head_dim=8,causal=False,learned_qk_scale=True,expansion=2).cuda().float()
+    torch.nn.init.normal_(model.proj.weight, std=.1)
     base={n:p.detach().clone() for n,p in model.named_parameters()}
     edited={n:p+.001*torch.randn_like(p) for n,p in base.items() if n.startswith('blocks.') and p.ndim==2}
     state=RunState(extras=dict(device=torch.device('cuda'),logits_forward=torch.compile(logits,fullgraph=True,dynamic=False)))
