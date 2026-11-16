@@ -5,16 +5,21 @@ from chisel.rank_expansion import actor, probes, block_indices
 
 
 @pytest.mark.parametrize('device', ['cpu', 'cuda'])
-def test_preserves_edits_and_new_directions_can_learn(device):
+@pytest.mark.parametrize('gains', [False, True])
+def test_preserves_edits_and_new_directions_can_learn(device, gains):
     if device == 'cuda' and not torch.cuda.is_available():
         pytest.skip('CUDA required')
     torch.manual_seed(4)
-    kwargs = dict(width=16, depth=1, head_dim=4, expansion=2, causal=False)
+    kwargs = dict(width=16, depth=1, head_dim=4, expansion=2, causal=False,
+                  full_rank_gains=gains, normalize_gains=gains)
     small = Chisel(rank=2, **kwargs).to(device).double()
     large = Chisel(rank=4, **kwargs).to(device).double()
     with torch.no_grad():
         small.proj.weight.normal_(std=.1)
         small.proj.bias.normal_(std=.1)
+        if gains:
+            small.gain_proj.weight.normal_(std=.1)
+            small.gain_proj.bias.normal_(std=.1)
     shapes = {'blocks.0.attn.q.weight': (8, 12), 'blocks.1.mlp.fc.weight': (16, 8)}
     left = PrivateProbes(shapes, 2).to(device).double()
     right = PrivateProbes(shapes, 4).to(device).double()
@@ -33,6 +38,9 @@ def test_preserves_edits_and_new_directions_can_learn(device):
     new_rows = [index for index in range(32) if index not in old_rows]
     assert large.proj.weight.grad[new_rows].norm() > 0
     assert large.embed.weight.grad.norm() > 0
+    if gains:
+        new_rows = [3, 4, 7, 8, 12, 13, 16, 17]
+        assert large.gain_proj.weight.grad[new_rows].norm() > 0
 
 
 def test_rejects_rank_reduction():

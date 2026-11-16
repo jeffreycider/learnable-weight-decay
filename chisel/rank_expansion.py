@@ -25,6 +25,14 @@ def actor(model, saved):
     result['proj.bias'] = torch.zeros_like(model.proj.bias)
     result['proj.weight'][outputs] = saved['proj.weight'].to(model.proj.weight)
     result['proj.bias'][outputs] = saved['proj.bias'].to(model.proj.bias)
+    if model.gain_proj is not None:
+        indices = [side * (1 + 2 * new) + index for side in range(2)
+                   for index in [0, *range(1, 1 + old), *range(1 + new, 1 + new + old)]]
+        for suffix in ('weight', 'bias'):
+            name = 'gain_proj.' + suffix
+            target = torch.zeros_like(getattr(model.gain_proj, suffix))
+            target[indices] = saved[name].to(target)
+            result[name] = target
     model.load_state_dict(result, strict=True)
 
 
