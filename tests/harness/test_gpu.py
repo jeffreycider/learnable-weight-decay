@@ -145,6 +145,7 @@ def test_compiled_identity_preservation_uses_matching_arithmetic():
     from chisel.preservation_fit import preservation_gradient,logits
     from chisel.harness import RunState
     model=CifarGPT(32,2,4,'mean',head_dim=8,causal=False,learned_qk_scale=True,expansion=2).cuda().float()
+    torch.nn.init.normal_(model.proj.weight, std=.1)
     base={n:p.detach().clone() for n,p in model.named_parameters()}
     effective={n:p.clone().requires_grad_() for n,p in base.items() if n.startswith('blocks.') and p.ndim==2}
     state=RunState(extras=dict(device=torch.device('cuda'),logits_forward=torch.compile(logits,fullgraph=True,dynamic=False)))
@@ -160,6 +161,7 @@ def test_compiled_cached_teacher_matches_repeated_uncached_gradients():
     from chisel.teacher_cache import TeacherCache
     from chisel.harness import RunState
     model=CifarGPT(32,2,4,'mean',head_dim=8,causal=False,learned_qk_scale=True,expansion=2).cuda().float()
+    torch.nn.init.normal_(model.proj.weight, std=.1)
     base={n:p.detach().clone() for n,p in model.named_parameters()}
     edited={n:p+.001*torch.randn_like(p) for n,p in base.items() if n.startswith('blocks.') and p.ndim==2}
     state=RunState(extras=dict(device=torch.device('cuda'),logits_forward=torch.compile(logits,fullgraph=True,dynamic=False)))
