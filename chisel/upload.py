@@ -19,6 +19,10 @@ def run(config):
     stopping, pending, failed = False, {}, {}
     verified = set()
     receipts, next_scan = [], 0.
+    inventory = None
+    if config.get('asynchronous_discovery', False):
+        from chisel.upload_discovery import Inventory
+        inventory = Inventory(root, config['receipt_glob'], config.get('scan_interval_seconds', 300))
 
     def stop(signum, frame):
         nonlocal stopping
@@ -37,7 +41,9 @@ def run(config):
                             verified.add(receipt)
                         except Exception as error:
                             failed[str(receipt)] = dict(error=str(error), retry_after=time.time() + config['retry_seconds'])
-                if time.monotonic() >= next_scan:
+                if inventory is not None and not stopping:
+                    receipts = inventory.poll()
+                elif inventory is None and time.monotonic() >= next_scan:
                     receipts = sorted(ready_receipts(root)) if config['receipt_glob'] == '**/*.ready.json' else sorted(root.glob(config['receipt_glob']))
                     next_scan = time.monotonic() + config.get('scan_interval_seconds', 300)
                 for receipt in receipts:
@@ -60,13 +66,16 @@ def run(config):
                     future = pool.submit(upload_receipt, client, root, receipt, config['bucket'], config['prefix'])
                     pending[future] = receipt
                 atomic_json(root / 'upload_status.json', dict(ready=len(receipts), verified=len(verified),
-                    pending=len(pending), failures=failed, updated_unix=time.time()))
+                    pending=len(pending), failures=failed, updated_unix=time.time(),
+                    discovery_in_progress=inventory is not None and inventory.future is not None))
                 if stopping and not pending:
                     break
                 time.sleep(config['poll_seconds'])
             for future in pending:
                 future.result()
     finally:
+        if inventory is not None:
+            inventory.close()
         for sig, handler in previous.items():
             signal.signal(sig, handler)
         lock.close()
