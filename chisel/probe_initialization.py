@@ -3,6 +3,13 @@ import torch
 
 
 @torch.no_grad()
+def orthonormal(probes, snapshot, seed, reference=None, actor=None):
+    """Condition the initial learned maps; impose no constraint on later updates."""
+    for parameter in probes.parameters():
+        parameter.copy_(torch.linalg.qr(parameter, mode='reduced').Q)
+
+
+@torch.no_grad()
 def attention_pairs(probes, snapshot, head_dim, seed, reference=None, actor=None):
     """Initialize paired write maps; every map remains trainable after initialization.
 
