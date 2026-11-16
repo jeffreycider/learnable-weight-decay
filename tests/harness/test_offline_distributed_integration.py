@@ -27,6 +27,7 @@ def test_distributed_offline_matches_single_process(tmp_path, dual_scope):
     cfg=resolve('recipes/offline.yaml');cfg.update(train_steps=2,output_dir=str(tmp_path/'single'),microbatch_size=2,validation_data=None,compile_gpt_loss=False)
     cfg['runtime'].update(device='cpu',autocast=None);cfg['compile']['enabled']=False;cfg['compile_proposal']=False
     cfg['model'].update(rank=2,width=16,depth=1,head_dim=4,expansion=2)
+    cfg['private_probes']['cache_bytes']=1<<20
     cfg['private_probes']['rank']=2;cfg['data'].update(manifest=str(manifest),batch_counts=dict(text=3))
     cfg['training_audit_data']=dict(cfg['data'])
     cfg['preservation']['dual_scope']=dual_scope

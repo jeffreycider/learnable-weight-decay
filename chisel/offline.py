@@ -1,5 +1,6 @@
 """Offline Chisel task on the same loop; private probes and Adam state persist per checkpoint."""
 from pathlib import Path
+from collections import OrderedDict
 import torch
 from chisel.harness import build, locate
 from chisel.cifar import seed_at
@@ -45,35 +46,73 @@ class ProbeStore:
     def __init__(self, root, config, device):
         self.root, self.config, self.device = Path(root), config, device
         self.latest = {}
+        self.cache, self.resident_bytes = OrderedDict(), 0
+        self.cache_bytes = config.get('cache_bytes', 0)
 
     def load(self, identity, snapshot, reference=None, actor=None):
         with torch.random.fork_rng(devices=[]):
             torch.random.default_generator.manual_seed(seed_at(self.config['seed'], int(identity[:16], 16)))
             probes = PrivateProbes({name: item['raw'].shape for name, item in snapshot.items()}, self.config['rank']).to(self.device)
-        if identity not in self.latest and self.config.get('initialize'):
+        if identity not in self.latest and identity not in self.cache and self.config.get('initialize'):
             rule = self.config['initialize']
             locate(rule['name'])(probes, snapshot, reference=reference, actor=actor,
                 seed=seed_at(self.config['seed'], int(identity[:16], 16)), **rule['kwargs'])
         optimizer = build(self.config['optimizer'], params=probes.parameters())
-        if identity in self.latest:
-            saved = torch.load(self.latest[identity], map_location=self.device, weights_only=False)
+        if identity in self.latest or identity in self.cache:
+            if identity in self.cache:
+                item = self.cache.pop(identity)
+                self.cache[identity] = item
+                saved = cpu_copy(item[0])  # Optimizer loading must not alias the cached state.
+            else:
+                saved = torch.load(self.latest[identity], map_location=self.device, weights_only=False)
             probes.load_state_dict(saved['probes'])
             optimizer.load_state_dict(saved['optimizer'])
         return probes, optimizer
 
     def save(self, identity, step, probes, optimizer):
+        payload = cpu_copy(dict(probes=probes.state_dict(), optimizer=optimizer.state_dict()))
+        from chisel.checkpoint_io import map_tensors
+        sizes = []
+        map_tensors(payload, lambda value: sizes.append(value.numel() * value.element_size()))
+        size = sum(sizes)
+        if identity in self.cache:
+            self.resident_bytes -= self.cache.pop(identity)[2]
+        if not self.cache_bytes or size > self.cache_bytes:
+            self.persist(identity, payload, step)
+            return
+        while self.cache and self.resident_bytes + size > self.cache_bytes:
+            oldest = next(iter(self.cache))
+            self.flush_identity(oldest)
+            self.resident_bytes -= self.cache.pop(oldest)[2]
+        self.cache[identity] = (payload, step, size)
+        self.resident_bytes += size
+
+    def persist(self, identity, payload, step):
         path = self.root / f'{identity}-{step:08d}.pt'
-        save_atomic(cpu_copy(dict(probes=probes.state_dict(), optimizer=optimizer.state_dict())), path)
+        save_atomic(payload, path)
         self.latest[identity] = str(path.resolve())
+
+    def flush_identity(self, identity):
+        payload, step, size = self.cache[identity]
+        if step is not None:
+            self.persist(identity, payload, step)
+            self.cache[identity] = (payload, None, size)
+
+    def flush(self):
+        for identity in self.cache:
+            self.flush_identity(identity)
 
     def state_dict(self):
         # The actor checkpoint commits these pointers. Older private versions remain valid.
+        self.flush()
         return dict(latest=dict(self.latest))
 
     def load_state_dict(self, saved):
         self.latest = dict(saved['latest'])
         if any(not Path(path).is_file() for path in self.latest.values()):
             raise FileNotFoundError('checkpoint-private probe state is missing')
+        self.cache.clear()
+        self.resident_bytes = 0
 
 
 def setup():
