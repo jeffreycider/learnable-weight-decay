@@ -1,0 +1,14 @@
+extends: nanogpt.yaml
+output_dir: runs/nanogpt-muonh-40gb
+microbatch_size: 8
+post_optimizer:
+- name: chisel.evaluation.evaluate
+  hyperparams:
+    every: 125
+    microbatch_size: 8
+- name: chisel.recording.progress
+  hyperparams:
+    every: 1
+- name: chisel.recording.checkpoint
+  hyperparams:
+    every: 250

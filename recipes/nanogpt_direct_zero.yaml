@@ -1,0 +1,7 @@
+extends: nanogpt_direct_transfer.yaml
+output_dir: runs/nanogpt-direct-zero
+direct_transfer:
+  preview_zero: true  # Exercise the lookahead even though every transfer is zero.
+  schedule:
+    kwargs:
+      size: 0.0

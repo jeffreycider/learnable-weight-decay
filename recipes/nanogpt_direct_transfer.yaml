@@ -1,0 +1,38 @@
+extends: nanogpt.yaml
+output_dir: runs/nanogpt-direct-transfer
+# 64 sequences/rank, accumulated in eight microbatches on 8 x A100 40 GB.
+# GPU memory and speed still require qualification on the new node.
+microbatch_size: 8
+direct_transfer:
+  _target_: chisel.direct_transfer.DirectTransfer
+  optimizer_group: hidden
+  lookahead: chisel.lookahead.next_gradient
+  gradient_floor: 1.0e-20  # Absolute L2 norm in the configured task-gradient units.
+  preview_zero: false
+  schedule:
+    name: chisel.hypergradient.edit_schedule
+    kwargs:
+      size: 0.1
+      start_step: 0
+      ramp_steps: 0
+      interval: 1
+      terminal_identity: true
+setup:
+- name: chisel.training.initialize
+- name: chisel.training.model
+- name: chisel.training.optimizers
+- name: chisel.training.data
+- name: chisel.direct_transfer.setup
+- name: chisel.recording.open_run
+- name: chisel.recording.restore
+post_optimizer:
+- name: chisel.evaluation.evaluate
+  hyperparams:
+    every: 125
+    microbatch_size: 8
+- name: chisel.recording.progress
+  hyperparams:
+    every: 1
+- name: chisel.recording.checkpoint
+  hyperparams:
+    every: 250
