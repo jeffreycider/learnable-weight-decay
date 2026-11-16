@@ -34,11 +34,16 @@ def preservation_gradient(model, original, edited, effective, batch, config, sta
     inputs = sampled_inputs(batch, config)
     microbatch = config['microbatch_size']
     loss_config = config['preservation']
+    constraint = loss_config.get('constraint_metric', 'kl')
+    if constraint not in ('kl', 'logit_mse'):
+        raise ValueError('preservation constraint must be kl or logit_mse')
+    kl_weight = dual_value if constraint == 'kl' else 0.
+    mse_weight = loss_config['logit_mse_weight'] + (dual_value if constraint == 'logit_mse' else 0.)
     forward = state.extras['logits_forward']
     cache = state.extras.setdefault('teacher_cache', TeacherCache(config.get('teacher_cache_bytes', 0)))
     identity = config.get('preservation_cache_key')
     sample = config.get('preservation_sample_seed') if len(inputs) < len(batch['inputs']) else None
-    measure_kl = dual_value != 0 or config.get('measure_kl', True)
+    measure_kl = kl_weight != 0 or config.get('measure_kl', True)
     measure_rankings = config.get('measure_rankings', True)
     gradients = {name: torch.zeros_like(value) for name, value in effective.items()}
     metrics = dict(kl=0., logit_mse=0., ranking_loss=0., maximum_kl=0., rank_changed_positions=0,
@@ -61,8 +66,8 @@ def preservation_gradient(model, original, edited, effective, batch, config, sta
             loss_config.get('ranking_power', 2), loss_config.get('center_logits', True),
             compute_kl=measure_kl, compute_ranking=loss_config['ranking_weight'] != 0)
         ranking = ranking_objective(terms['ranking'], loss_config)
-        loss = weight * (loss_config['logit_mse_weight'] * terms['mse'].mean()
-                        + dual_value * terms['kl'].mean()
+        loss = weight * (mse_weight * terms['mse'].mean()
+                        + kl_weight * terms['kl'].mean()
                         + loss_config['ranking_weight'] * ranking)
         cotangents = torch.autograd.grad(loss, tuple(effective.values()))
         for name, gradient in zip(effective, cotangents):
