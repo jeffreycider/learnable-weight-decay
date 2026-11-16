@@ -57,7 +57,8 @@ def test_augmented_lagrangian_retains_nontrivial_shrinkage_at_equality():
 
 @pytest.mark.parametrize('device', ['cpu', pytest.param('cuda', marks=pytest.mark.skipif(
     not torch.cuda.is_available(), reason='CUDA required'))])
-def test_actual_chisel_multiplier_resume_is_exact(tmp_path, device):
+@pytest.mark.parametrize('missing_restore', [False, True])
+def test_actual_chisel_multiplier_resume_is_exact(tmp_path, device, missing_restore):
     from tests.harness.test_checkpoint_duals import configuration
     config = configuration(tmp_path)
     config['runtime']['device'] = device
@@ -78,11 +79,17 @@ def test_actual_chisel_multiplier_resume_is_exact(tmp_path, device):
     config['pre_forward'] = []
     config['post_optimizer'] = [dict(name='chisel.logit_constraints.update', hyperparams=dict(every=2)),
         dict(name='chisel.parallel_diagnostics.checkpoint', hyperparams=dict(every=2))]
+    if missing_restore:
+        config['setup'] = [h for h in config['setup'] if h['name'] != 'chisel.recording.restore']
     expected = run(config)
     config.update(output_dir=str(tmp_path/'prefix'), stop_step=2)
     run(config)
     config.update(output_dir=str(tmp_path/'resumed'), stop_step=4,
                   resume=str(tmp_path/'prefix/latest_rank0.pt'))
+    if missing_restore:
+        from tests.harness.test_resume_compatibility import declaration
+        config['setup'].append(dict(name='chisel.recording.restore'))
+        config['resume_compatibility'] = declaration(tmp_path, ['setup.restore_hook'], {})
     actual = run(config)
     for a,b in [(actual.model, expected.model),
                 (actual.extras['fit']['probes'], expected.extras['fit']['probes']),

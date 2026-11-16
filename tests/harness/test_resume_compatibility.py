@@ -85,3 +85,18 @@ def test_private_store_migration_rejects_unqualified_implementations(tmp_path):
         resume_compatibility=declaration(tmp_path,['private_store'],{}))
     with pytest.raises(ValueError,match='unqualified private store'):
         validate(saved,config,{})
+
+
+def test_late_restore_hook_migration_rejects_other_hook_changes(tmp_path):
+    saved = dict(config=dict(setup=[dict(name='task.setup')]), source_hashes={})
+    config = deepcopy(saved['config'])
+    config['resume_compatibility'] = declaration(tmp_path, ['setup.restore_hook'], {})
+    config['setup'].append(dict(name='chisel.recording.restore'))
+    validate(saved, config, {})
+    for hooks in ([dict(name='chisel.recording.restore'), dict(name='task.setup')],
+                  [dict(name='task.setup'), dict(name='chisel.recording.restore', hyperparams={'x': 1})],
+                  [dict(name='task.setup'), dict(name='chisel.recording.restore'), dict(name='chisel.recording.restore')],
+                  [dict(name='other.setup'), dict(name='chisel.recording.restore')]):
+        config['setup'] = hooks
+        with pytest.raises(ValueError, match='training configuration'):
+            validate(saved, config, {})

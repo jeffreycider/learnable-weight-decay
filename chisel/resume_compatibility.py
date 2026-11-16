@@ -9,6 +9,7 @@ PERFORMANCE_FIELDS = {
     'compile_preservation_loss', 'teacher_cache_bytes',
     'checkpoint_io.cache_bytes', 'checkpoint_io.pin_memory',
     'distributed_audit', 'training_audit_inputs', 'private_store',
+    'setup.restore_hook',
 }
 IGNORED = {'resume', 'output_dir', 'stop_step', 'resume_compatibility'}
 
@@ -33,6 +34,12 @@ def validate(saved, config, sources):
         for key in IGNORED:
             value.pop(key, None)
         for field in fields:
+            if field == 'setup.restore_hook':
+                hooks = value.get('setup', [])
+                if hooks and hooks[-1] in ({'name': 'chisel.recording.restore'},
+                                          {'name': 'chisel.recording.restore', 'hyperparams': {}}):
+                    value['setup'] = hooks[:-1]
+                continue
             keys = field.split('.')
             parent = value
             for key in keys[:-1]:
