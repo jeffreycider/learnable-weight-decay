@@ -59,15 +59,22 @@ def test_zero_heads_learn_norm_reduction_without_analytic_initialization():
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(),reason='CUDA required')
-def test_cuda_compilation_preservation_gradient_and_reuse():
+@pytest.mark.parametrize('snapshot_metadata',[False,True])
+def test_cuda_compilation_preservation_gradient_and_reuse(snapshot_metadata):
     from torch._dynamo.utils import counters
     torch.set_float32_matmul_precision('highest')
     model,base,snapshot,actor,probes = example('cuda',torch.float32)
+    if snapshot_metadata:
+        for i,block in enumerate(model.blocks):
+            name=f'blocks.{i}.attn.v.weight'
+            snapshot[name]['attention_head_dim']=block.attn.head_dim
+            snapshot[name]['attention_value_bias']=base[name.replace('weight','bias')]
     with torch.no_grad():actor.proj.weight.normal_(std=.03)
     compiled = torch.compile(propose,fullgraph=True,dynamic=False)
     params=list(actor.parameters())+list(probes.parameters())
     def compute(fn):
-        effective=apply_edits(snapshot,fn(actor,probes,snapshot,base,8))[2]
+        args=(actor,probes,snapshot) if snapshot_metadata else (actor,probes,snapshot,base,8)
+        effective=apply_edits(snapshot,fn(*args))[2]
         loss=group_norm_change(snapshot,effective)
         gradients=torch.autograd.grad(loss,params,allow_unused=True)
         return effective,gradients

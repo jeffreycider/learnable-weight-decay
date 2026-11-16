@@ -5,7 +5,7 @@ from chisel.preservation import group_norm_change, effective_norm_change
 from chisel.overfit_diagnostics import edited_weights
 
 
-def propose(actor, probes, snapshot, reference, head_dim):
+def propose(actor, probes, snapshot, reference=None, head_dim=None):
     """Learn H from global transformer codes; V'=HV, O'=OH^-1, Hb=b.
 
     Only this diagnostic constrains edits to this exact attention symmetry.
@@ -22,18 +22,20 @@ def propose(actor, probes, snapshot, reference, head_dim):
         other = name.replace('.attn.v.weight', '.attn.proj.weight')
         v = (snapshot[name]['raw'] + snapshot[name]['consolidated']).double()
         o = (snapshot[other]['raw'] + snapshot[other]['consolidated']).double()
-        heads = v.shape[0] // head_dim
-        bias = reference[name.removesuffix('weight') + 'bias'].double().reshape(heads, head_dim, 1)
-        left = probes.write_left[i].double().reshape(heads, head_dim, probes.rank)
+        dim = head_dim if head_dim is not None else snapshot[name]['attention_head_dim']
+        heads = v.shape[0] // dim
+        bias = (reference[name.removesuffix('weight') + 'bias'] if reference is not None
+                else snapshot[name]['attention_value_bias']).double().reshape(heads, dim, 1)
+        left = probes.write_left[i].double().reshape(heads, dim, probes.rank)
         left = left - bias @ (bias.transpose(-1, -2) @ left) / bias.square().sum(-2, keepdim=True).clamp_min(1e-30)
         code = codes[i].sum(0).double()
         symmetric = left @ ((code + code.T) * .5) @ left.transpose(-1, -2)
         # Eigenvalues of H lie in (1/2, 3/2); no singular inverse or zero-head dead derivative.
         delta = .5 * symmetric / (1 + symmetric.square().sum((-1, -2), keepdim=True)).sqrt()
-        identity = torch.eye(head_dim, device=v.device, dtype=v.dtype).expand(heads, -1, -1)
-        value_delta = delta @ v.reshape(heads, head_dim, -1)
+        identity = torch.eye(dim, device=v.device, dtype=v.dtype).expand(heads, -1, -1)
+        value_delta = delta @ v.reshape(heads, dim, -1)
         # H^-1-I = -solve(H, delta) avoids subtracting nearly equal matrices.
-        output_delta = o.reshape(-1, heads, head_dim).permute(1, 0, 2) @ (-torch.linalg.solve(identity + delta, delta))
+        output_delta = o.reshape(-1, heads, dim).permute(1, 0, 2) @ (-torch.linalg.solve(identity + delta, delta))
         edits[name]['raw'] = value_delta.reshape_as(v).to(snapshot[name]['raw'])
         edits[other]['raw'] = output_delta.permute(1, 0, 2).reshape_as(o).to(snapshot[other]['raw'])
     return edits
