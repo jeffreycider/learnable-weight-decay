@@ -51,6 +51,22 @@ def finish(model, metrics, world_size):
     metrics.update(zip(metrics, values.tolist()))
 
 
+def gather_audit(totals, rows, entries, state):
+    """Retain every checkpoint result; aggregate the same global means and extrema."""
+    for prefix, op in [('minimum_', dist.ReduceOp.MIN), ('maximum_', dist.ReduceOp.MAX), ('', dist.ReduceOp.SUM)]:
+        keys = [key for key in totals if key.startswith(prefix)] if prefix else [
+            key for key in totals if not key.startswith(('minimum_', 'maximum_'))]
+        values = torch.tensor([totals[key] for key in keys], device=state.extras['device'], dtype=torch.float64)
+        dist.all_reduce(values, op=op)
+        totals.update(zip(keys, values.tolist()))
+    gathered = [None] * state.extras['world_size']
+    dist.all_gather_object(gathered, rows)
+    lookup = {row['sha256']: row for group in gathered for row in group}
+    if len(lookup) != len(entries) or sum(map(len, gathered)) != len(entries):
+        raise ValueError('distributed audit omitted or duplicated checkpoint identities')
+    return [lookup[entry['sha256']] for entry in entries]
+
+
 def commit(every):
     """Publish a restart generation only after every rank's durable checkpoint exists."""
     def hook(config, state):

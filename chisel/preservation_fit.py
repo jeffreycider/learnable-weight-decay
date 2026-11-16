@@ -135,13 +135,14 @@ def evaluate(every):
         from pathlib import Path
         from chisel.harness import build
         from chisel.storage import atomic_json
-        from chisel.distributed_offline import synchronize_private_store
+        from chisel.distributed_offline import synchronize_private_store, owned, gather_audit
         from chisel.transfer import action
         from chisel.preservation import group_norm_change, effective_norm_change
         if (state.step + 1) % every and state.step + 1 != config['train_steps']:
             return
         synchronize_private_store(state)
-        if state.extras['rank']:
+        parallel = config.get('distributed_audit', False) and state.extras['world_size'] > 1
+        if state.extras['rank'] and not parallel:
             return
         training_ids = {entry['sha256'] for rows in state.train_batches.domains.values() for entry in rows}
         state.model.eval()
@@ -158,7 +159,8 @@ def evaluate(every):
                               rank_changed_positions=0, greedy_changed_positions=0, evaluated_positions=0,
                               logit_mse=0., maximum_logit_change=0.)
                 checkpoint_results = []
-                for entry in entries:
+                local_entries = [entry for entry in entries if owned(entry, state)] if parallel else entries
+                for entry in local_entries:
                     model, base, snapshot, directions, rates, batch, _ = state.extras['replay'].load(entry)
                     probes, private_optimizer = state.extras['private_probes'].load(entry['sha256'], snapshot, base, actor=state.model)
                     measurement_config = config | config.get('domain_settings', {}).get(entry['domain'], {})
@@ -191,8 +193,11 @@ def evaluate(every):
                     totals['maximum_logit_change'] = max(totals['maximum_logit_change'], result.pop('maximum_logit_change'))
                     for name, value in result.items():
                         totals[name] += value
-                atomic_json(Path(config['output_dir']) / 'audits' / f'{prefix}_{state.step + 1:08d}.json',
-                            dict(shared_updates=state.step + 1, checkpoints=checkpoint_results))
+                if parallel:
+                    checkpoint_results = gather_audit(totals, checkpoint_results, entries, state)
+                if state.extras['rank'] == 0:
+                    atomic_json(Path(config['output_dir']) / 'audits' / f'{prefix}_{state.step + 1:08d}.json',
+                                dict(shared_updates=state.step + 1, checkpoints=checkpoint_results))
                 if not config.get('measure_kl', True):
                     totals.pop('kl')
                     totals.pop('maximum_kl')
