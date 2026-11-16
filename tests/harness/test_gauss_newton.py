@@ -32,7 +32,7 @@ def test_underdetermined_step_is_the_damped_minimum_motion_solution():
     opt.step()
     torch.testing.assert_close(value, expected)
     assert unused == 9 and opt.metrics['refinement_accepted']
-    assert opt.evaluations == 2 and opt.products == 2
+    assert opt.evaluations == 2 and opt.products == 3
 
 
 def test_nonlinear_backtracking_and_exact_resume():
@@ -142,3 +142,17 @@ def test_harness_refinement_targets_private_weights_and_resume(tmp_path, device)
     assert actual.optimizer.state_dict()==expected.optimizer.state_dict()
     assert actual.optimizer.evaluations>4
     assert any(not torch.equal(a,b) for a,b in zip(prefix.model.parameters(),actual.model.parameters()))
+
+
+def test_relative_damping_matches_dense_scaled_system():
+    matrix=torch.tensor([[1000.,20.,0.],[0.,10.,1.]],dtype=torch.float64)
+    value=torch.nn.Parameter(torch.tensor([.1,2.,-3.],dtype=torch.float64))
+    initial=value.detach().clone();residual=matrix@initial
+    rayleigh=(residual@(matrix@matrix.T)@residual)/(residual@residual)
+    damping=.01+.03*rayleigh
+    expected=initial-matrix.T@torch.linalg.solve(matrix@matrix.T+damping*torch.eye(2,dtype=torch.float64),residual)
+    opt=GaussNewton([value],damping=.01,relative_damping=.03,cg_steps=20,cg_tolerance=1e-12)
+    opt.closure=lambda:matrix@value
+    opt.step()
+    torch.testing.assert_close(value,expected)
+    assert abs(opt.metrics['damping']-damping.item())<1e-9

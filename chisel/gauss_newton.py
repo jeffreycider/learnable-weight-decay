@@ -38,12 +38,13 @@ class GaussNewton:
     Only a single forward graph is retained per correction. No dense Jacobian.
     """
     def __init__(self, parameters, damping=1e-6, cg_steps=50, cg_tolerance=1e-3,
-                 backtracks=10):
-        if damping <= 0 or cg_steps < 1 or not 0 < cg_tolerance < 1 or backtracks < 1:
+                 backtracks=10, relative_damping=0.):
+        if damping <= 0 or relative_damping < 0 or cg_steps < 1 or not 0 < cg_tolerance < 1 or backtracks < 1:
             raise ValueError('invalid Gauss-Newton settings')
         self.parameters = list(parameters)
         self.damping, self.cg_steps = damping, cg_steps
         self.cg_tolerance, self.backtracks = cg_tolerance, backtracks
+        self.relative_damping = relative_damping
         self.steps, self.evaluations, self.products = 0, 0, 0
         self.closure, self.metrics = None, {}
 
@@ -77,10 +78,16 @@ class GaussNewton:
             def product(vector):
                 self.products += 1
                 return torch.autograd.grad(symbolic, cotangent, transpose(vector),
-                                           retain_graph=True)[0] + self.damping * vector
+                                           retain_graph=True)[0]
+
+            # Scale damping to this parameterization's measured curvature; a fixed
+            # absolute constant can be negligible for large learned decoder gains.
+            rayleigh = dot(residual.detach(), product(residual.detach())) / before
+            damping = self.damping + self.relative_damping * rayleigh.clamp_min(0)
 
             dual, iterations, relative = conjugate_gradient(
-                product, residual.detach(), self.cg_steps, self.cg_tolerance)
+                lambda value: product(value) + damping * value,
+                residual.detach(), self.cg_steps, self.cg_tolerance)
             delta = tuple(-value.detach() for value in transpose(dual))
             del product, transpose, residual, cotangent, symbolic, active
             saved = [p.detach().clone() for p in parameters]
@@ -106,6 +113,7 @@ class GaussNewton:
             self.steps += 1
             self.metrics = dict(refinement_accepted=accepted, refinement_scale=fraction if accepted else 0.,
                 cg_iterations=iterations, cg_relative_residual=relative,
+                damping=damping.item(), initial_rayleigh=rayleigh.item(),
                 jacobian_products=self.products, closure_evaluations=self.evaluations)
 
     def zero_grad(self, **kwargs):
@@ -120,7 +128,7 @@ class GaussNewton:
 
 
 def setup(damping=1e-6, cg_steps=50, cg_tolerance=1e-3, backtracks=10,
-          norm_retention_weight=1.):
+          norm_retention_weight=1., relative_damping=0.):
     def hook(config, state):
         from chisel.overfit_diagnostics import edited_weights
         from chisel.preservation import group_norm_change
@@ -139,7 +147,7 @@ def setup(damping=1e-6, cg_steps=50, cg_tolerance=1e-3, backtracks=10,
         state.extras.setdefault('checkpointables', {})['refinement_targets'] = targets
         state.extras['training_forwards'] = state.extras.get('training_forwards', 0) + 1
         state.optimizer = GaussNewton(list(state.model.parameters()) + list(fit['probes'].parameters()),
-                                      damping, cg_steps, cg_tolerance, backtracks)
+                                      damping, cg_steps, cg_tolerance, backtracks, relative_damping)
 
         def closure():
             effective = edited_weights(config, state)
