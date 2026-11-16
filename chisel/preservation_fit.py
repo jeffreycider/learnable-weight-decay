@@ -103,11 +103,16 @@ def audit(model, original, edited, batch, config, state):
     inputs = sampled_inputs(batch, config)
     metrics = dict(kl=0., maximum_kl=0., rank_changed_positions=0, greedy_changed_positions=0, evaluated_positions=0,
                    logit_mse=0., maximum_logit_change=0.)
+    names = [name for name in edited if edited[name] is not original[name]]
     for start in range(0, len(inputs), config['microbatch_size']):
         examples = inputs[start:start + config['microbatch_size']]
-        with autocast(config, state):
-            teacher = state.extras['logits_forward'](model, original, examples)
-            student = state.extras['logits_forward'](model, edited, examples)
+        with torch.enable_grad(), autocast(config, state):
+            # Match fitting's forward arithmetic and reuse its compiled graph.
+            # Detach each output immediately; audits never run a GPT backward.
+            reference = original | {name: original[name].detach().requires_grad_() for name in names}
+            candidate = edited | {name: edited[name].detach().requires_grad_() for name in names}
+            teacher = state.extras['logits_forward'](model, reference, examples).detach()
+            student = state.extras['logits_forward'](model, candidate, examples).detach()
         terms = prediction_terms(student, teacher, config['preservation']['top_k'], config['preservation']['margin_fraction'],
                                  center_logits=config['preservation'].get('center_logits', True),
                                  compute_kl=config.get('measure_kl', True), compute_ranking=False)
@@ -174,9 +179,11 @@ def evaluate(every):
                         fitted = Path(config['output_dir']) / 'audits' / f'private_{state.step + 1:08d}' / f"{entry['sha256']}.pt"
                         save_atomic(cpu_copy(dict(probes=probes.state_dict(), optimizer=private_optimizer.state_dict())), fitted)
                         adaptation.update(adaptation_probes_file=str(fitted.resolve()), adaptation_probes_sha256=sha256(fitted))
-                    _, effective, _ = action(state.extras['forward'], probes, snapshot, directions, rates,
-                                             config['radius_floor'], advance_optimizer=False,
-                                             proposer=state.extras.get('proposal_forward'))
+                    with torch.enable_grad():
+                        effective = action(state.extras['forward'], probes, snapshot, directions, rates,
+                                           config['radius_floor'], advance_optimizer=False,
+                                           proposer=state.extras.get('proposal_forward'))[1]
+                    effective = {name: value.detach() for name, value in effective.items()}
                     result = audit(model, base, base | effective, batch, measurement_config, state)
                     reduction = -100 * group_norm_change(snapshot, effective).item()
                     totals['norm_reduction_pct'] += reduction / len(entries)
