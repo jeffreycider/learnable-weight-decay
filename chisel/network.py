@@ -34,6 +34,7 @@ class PrivateProbes(nn.Module):
 
     def decode(self, codes, snapshot):
         gains = codes['gains'] if isinstance(codes, dict) else None
+        normalize_gains = codes.get('normalize_gains', False) if isinstance(codes, dict) else False
         codes = codes['low_rank'] if isinstance(codes, dict) else codes
         result = {}
         for index, name in enumerate(self.names):
@@ -49,14 +50,22 @@ class PrivateProbes(nn.Module):
                     values = gains[index, side]
                     row = left @ values[1:1 + self.rank]
                     column = right @ values[1 + self.rank:]
+                    uniform = values[0]
+                    if normalize_gains:
+                        rows, columns = effective.shape
+                        uniform = uniform / math.sqrt(rows * columns)
+                        row, column = row / math.sqrt(columns), column / math.sqrt(rows)
                     result[name][bank] = result[name][bank] + effective * (
-                        values[0] + row[:, None] + column[None, :])
+                        uniform + row[:, None] + column[None, :])
         return result
 
 
 class Chisel(nn.Module):
-    def __init__(self, rank, width, depth, full_rank_gains=False, **block_args):
+    def __init__(self, rank, width, depth, full_rank_gains=False, normalize_gains=False, **block_args):
         super().__init__()
+        if normalize_gains and not full_rank_gains:
+            raise ValueError('gain normalization requires the full-rank gain head')
+        self.normalize_gains = normalize_gains
         self.rank = rank
         self.embed = nn.Linear(5 * rank * rank + 2 * rank + 9, width)
         self.blocks = nn.ModuleList([Block(width, **block_args) for _ in range(depth)])
@@ -78,7 +87,7 @@ class Chisel(nn.Module):
         if self.gain_proj is None:
             return codes
         gains = self.gain_proj(hidden)[0].reshape(-1, 2, 1 + 2 * self.rank)
-        return dict(low_rank=codes, gains=gains)
+        return dict(low_rank=codes, gains=gains, normalize_gains=self.normalize_gains)
 
 
 def propose(actor, probes, snapshot):
