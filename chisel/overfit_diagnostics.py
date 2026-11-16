@@ -100,7 +100,7 @@ def backward(config, state):
         metrics['private_gradient_norm'] = torch.nn.utils.clip_grad_norm_(fit['probes'].parameters(), config['gradient_clip']).item()
         if not config.get('diagnostic_lbfgs', False):
             fit['private'].step()
-    state.extras['train_loss'] = loss_scale * (norm_objective.item() + config['preservation']['logit_mse_weight'] * observed['logit_mse'] + config['diagnostic_kl_weight'] * observed.get('kl', 0.))
+    state.extras['train_loss'] = loss_scale * (norm_objective.item() + config['preservation']['logit_mse_weight'] * observed['logit_mse'] + config['diagnostic_kl_weight'] * observed.get('kl', 0.) + observed.get('constraint_linear', 0.))
     metrics['loss_scale'] = loss_scale
     state.extras['metrics'] = metrics
 
